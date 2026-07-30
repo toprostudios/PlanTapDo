@@ -6,7 +6,6 @@ struct TodayView: View {
 
     @State private var newTodoTitle: String = ""
     @State private var selectedCategory: Category? = nil
-    @State private var newSubtaskTitle: String = ""
 
     private var todayTodos: [TodoEntry] {
         let calendar = Calendar.current
@@ -21,12 +20,12 @@ struct TodayView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                // Header Bar with Prominent Settings Button
-                HStack {
+            VStack(spacing: 12) {
+                // Header Bar Row 1: Title, Date, Account Profile, Settings
+                HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("📍 Today's Focus")
-                            .font(.title2.weight(.bold))
+                            .font(.title3.weight(.bold))
                             .foregroundStyle(.primary)
 
                         Text(Date().formatted(.dateTime.weekday(.wide).month().day()))
@@ -36,21 +35,35 @@ struct TodayView: View {
 
                     Spacer()
 
-                    // Toggle View Switcher: List | Calendar | Kanban
-                    Picker("Layout", selection: $viewModel.displayStyle) {
-                        Text("List").tag(DisplayStyle.list)
-                        Text("Calendar").tag(DisplayStyle.calendar)
-                        Text("Kanban").tag(DisplayStyle.kanban)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 190)
+                    // User Account Profile Pill Button
+                    Button {
+                        viewModel.showingAccountModal = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.indigo)
+                                .frame(width: 26, height: 26)
+                                .overlay(
+                                    Text(viewModel.userAccount.name.prefix(1).uppercased())
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundStyle(.white)
+                                )
 
-                    // Prominent Settings Button
+                            Text("👑 \(viewModel.userAccount.tier)")
+                                .font(.caption2.weight(.heavy))
+                                .foregroundStyle(.indigo)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.indigo.opacity(0.15)))
+                    }
+
+                    // Settings Button
                     Button {
                         viewModel.showingSettings = true
                     } label: {
                         Image(systemName: "gearshape.fill")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 15, weight: .bold))
                             .padding(8)
                             .background(Circle().fill(Color.indigo))
                             .foregroundStyle(.white)
@@ -58,18 +71,26 @@ struct TodayView: View {
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
-                .padding(.bottom, 12)
+
+                // Header Bar Row 2: Full-Width Layout Switcher (List | Calendar | Kanban)
+                Picker("Layout", selection: $viewModel.displayStyle) {
+                    Text("List 📝").tag(DisplayStyle.list)
+                    Text("Calendar 🗓️").tag(DisplayStyle.calendar)
+                    Text("Kanban 📋").tag(DisplayStyle.kanban)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
 
                 // Render selected layout: List, Calendar, or Kanban
                 if viewModel.displayStyle == .list {
                     VStack(spacing: 12) {
-                        // Quick Add Input
+                        // Quick Add Input Bar
                         HStack(spacing: 10) {
                             Image(systemName: "bolt.fill")
                                 .foregroundStyle(.orange)
                             TextField("Quick add task for Today...", text: $newTodoTitle)
                                 .textFieldStyle(.plain)
-                                .font(.body)
+                                .font(.subheadline)
 
                             Button {
                                 guard !newTodoTitle.isEmpty else { return }
@@ -108,7 +129,7 @@ struct TodayView: View {
 
                                     VStack(alignment: .leading, spacing: 10) {
                                         HStack(spacing: 10) {
-                                            // Start / Stop Timer Button
+                                            // Checkbox / Complete Button
                                             Button {
                                                 viewModel.toggleComplete(todo)
                                             } label: {
@@ -122,6 +143,7 @@ struct TodayView: View {
                                                     Text(todo.title)
                                                         .font(.body.weight(.bold))
                                                         .strikethrough(todo.status == .completed)
+                                                        .lineLimit(2)
 
                                                     Spacer()
 
@@ -142,6 +164,7 @@ struct TodayView: View {
                                                         Text("📍 \(loc)")
                                                             .font(.caption.weight(.bold))
                                                             .foregroundStyle(.green)
+                                                            .lineLimit(1)
                                                     }
 
                                                     if let priority = todo.priority {
@@ -192,6 +215,7 @@ struct TodayView: View {
                                     .padding(.horizontal)
                                 }
                             }
+                            .padding(.bottom, 20)
                         }
                     }
                 } else if viewModel.displayStyle == .calendar {
@@ -205,6 +229,9 @@ struct TodayView: View {
             #endif
             .sheet(isPresented: $viewModel.showingSettings) {
                 SettingsView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $viewModel.showingAccountModal) {
+                AccountView(viewModel: viewModel)
             }
         }
         #if os(iOS)

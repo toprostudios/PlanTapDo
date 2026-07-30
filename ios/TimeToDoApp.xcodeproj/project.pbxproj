@@ -47,7 +47,7 @@
 		B1000017 /* AnalyticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsView.swift; sourceTree = "<group>"; };
 		B1000018 /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
 		B1000019 /* TeamView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamView.swift; sourceTree = "<group>"; };
-		C1000001 /* TimeToDoApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TimeToDoApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C1000001 /* 2.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = 2.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -98,7 +98,7 @@
 		E1000002 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				C1000001 /* TimeToDoApp.app */,
+				C1000001 /* 2.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -106,9 +106,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		F1000001 /* TimeToDoApp */ = {
+		F1000001 /* 2 */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = G1000002 /* Build configuration list for PBXNativeTarget "TimeToDoApp" */;
+			buildConfigurationList = G1000002 /* Build configuration list for PBXNativeTarget "2" */;
 			buildPhases = (
 				H1000001 /* Sources */,
 				D1000001 /* Frameworks */,
@@ -118,9 +118,9 @@
 			);
 			dependencies = (
 			);
-			name = TimeToDoApp;
+			name = 2;
 			productName = TimeToDoApp;
-			productReference = C1000001 /* TimeToDoApp.app */;
+			productReference = C1000001 /* 2.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -151,7 +151,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				F1000001 /* TimeToDoApp */,
+				F1000001 /* 2 */,
 			);
 		};
 /* End PBXProject section */
@@ -318,7 +318,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = BUB3Q77S9P;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TimeToDoApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -341,7 +341,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = BUB3Q77S9P;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = TimeToDoApp/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -370,7 +370,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		G1000002 /* Build configuration list for PBXNativeTarget "TimeToDoApp" */ = {
+		G1000002 /* Build configuration list for PBXNativeTarget "2" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				G2000003 /* Debug */,

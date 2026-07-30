@@ -48,10 +48,6 @@ struct CalendarHourlyGrid: View {
             .sorted { ($0.plannedStartTime ?? "23:59") < ($1.plannedStartTime ?? "23:59") }
     }
 
-    /**
-     * Automatic Transport Time Calculation (Remembered Account Location Travel Times Matrix):
-     * Uses saved travel times between Location A and Location B.
-     */
     private func computeTransportBlocks(for targetDate: Date) -> [(id: String, from: String, to: String, top: CGFloat, height: CGFloat, duration: Int)] {
         let sorted = dayTodos(for: targetDate)
         var result: [(id: String, from: String, to: String, top: CGFloat, height: CGFloat, duration: Int)] = []
@@ -78,7 +74,6 @@ struct CalendarHourlyGrid: View {
             let startMinB = hB * 60.0 + mB
 
             if startMinB >= endMinA {
-                // Use remembered travel time between locA and locB from viewModel
                 let duration = viewModel.getTravelTimeBetweenLocations(locA, locB)
                 let topPx = ((endMinA / 60.0) - 7.0) * 60.0
                 let heightPx = max(20.0, (CGFloat(duration) / 60.0) * 60.0)
@@ -127,169 +122,186 @@ struct CalendarHourlyGrid: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Header bar with 1 Day | 3 Days | Week Segmented Control
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Calendar Timeline")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.primary)
-                    Text("\(visibleDates.count) Day View")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+        GeometryReader { outerGeo in
+            let totalAvailableWidth = max(300, outerGeo.size.width)
+            let timeColWidth: CGFloat = 50
+            let gridWidth = totalAvailableWidth - timeColWidth
+
+            let calculatedColWidth: CGFloat = {
+                if calendarSpan == 1 {
+                    return gridWidth - 10
+                } else if calendarSpan == 3 {
+                    return max(110, gridWidth / 3.0)
+                } else {
+                    return 110
                 }
+            }()
 
-                Spacer()
-
-                // Mode Selector Segmented Picker
-                Picker("Span", selection: $calendarSpan) {
-                    Text("1 Day").tag(1)
-                    Text("3 Days").tag(3)
-                    Text("Week").tag(7)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 190)
-            }
-            .padding()
-            .background(Color.secondary.opacity(0.1))
-
-            ScrollView([.horizontal, .vertical]) {
-                HStack(alignment: .top, spacing: 0) {
-                    // Hour Grid Lines & Labels Column
-                    VStack(spacing: 0) {
-                        Text("Time")
-                            .font(.caption2.weight(.bold))
+            VStack(spacing: 0) {
+                // Header Bar with 1 Day | 3 Days | Week Segmented Control
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Calendar Grid")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(.primary)
+                        Text("\(visibleDates.count) Day View")
+                            .font(.caption2.weight(.semibold))
                             .foregroundStyle(.secondary)
-                            .frame(height: 32)
-
-                        ForEach(hours, id: \.self) { hour in
-                            HStack(alignment: .top) {
-                                Text(formatHour(hour))
-                                    .font(.caption2.weight(.bold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 50, alignment: .trailing)
-                            }
-                            .frame(height: 60)
-                        }
                     }
-                    .frame(width: 55)
 
-                    // Multi-Day Columns
-                    HStack(spacing: 0) {
-                        ForEach(visibleDates, id: \.self) { colDate in
-                            let todosForDay = dayTodos(for: colDate)
-                            let overlapMap = computeOverlapLayouts(for: colDate)
-                            let transportBlocks = computeTransportBlocks(for: colDate)
-                            let isColToday = Calendar.current.isDateInToday(colDate)
-                            let formattedDateStr = colDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+                    Spacer()
 
-                            VStack(spacing: 0) {
-                                // Column Day Header
-                                HStack(spacing: 4) {
-                                    Text(formattedDateStr)
-                                        .font(.caption.weight(.bold))
-                                        .foregroundStyle(isColToday ? Color.indigo : Color.primary)
-                                    if isColToday {
-                                        Text("TODAY")
-                                            .font(.system(size: 8, weight: .black))
-                                            .padding(.horizontal, 4)
-                                            .padding(.vertical, 1)
-                                            .background(Capsule().fill(Color.indigo))
-                                            .foregroundStyle(.white)
-                                    }
-                                }
+                    // Mode Selector Segmented Picker
+                    Picker("Span", selection: $calendarSpan) {
+                        Text("1 Day").tag(1)
+                        Text("3 Days").tag(3)
+                        Text("Week").tag(7)
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(width: 170)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.secondary.opacity(0.08))
+
+                ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                    HStack(alignment: .top, spacing: 0) {
+                        // Hour Grid Lines & Labels Column
+                        VStack(spacing: 0) {
+                            Text("Time")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.secondary)
                                 .frame(height: 32)
-                                .frame(maxWidth: .infinity)
-                                .background(isColToday ? Color.indigo.opacity(0.1) : Color.secondary.opacity(0.08))
-                                .border(Color.secondary.opacity(0.2), width: 0.5)
 
-                                // Hour Grid Lines & Task Cards Container
-                                GeometryReader { geo in
-                                    ZStack(alignment: .topLeading) {
-                                        // Grid lines
-                                        VStack(spacing: 0) {
-                                            ForEach(hours, id: \.self) { _ in
-                                                VStack {
-                                                    Divider()
-                                                    Spacer()
-                                                }
-                                                .frame(height: 60)
-                                            }
-                                        }
+                            ForEach(hours, id: \.self) { hour in
+                                HStack(alignment: .top) {
+                                    Text(formatHour(hour))
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 44, alignment: .trailing)
+                                }
+                                .frame(height: 60)
+                            }
+                        }
+                        .frame(width: timeColWidth)
 
-                                        // Current Time Bar
+                        // Multi-Day Columns
+                        HStack(spacing: 0) {
+                            ForEach(visibleDates, id: \.self) { colDate in
+                                let todosForDay = dayTodos(for: colDate)
+                                let overlapMap = computeOverlapLayouts(for: colDate)
+                                let transportBlocks = computeTransportBlocks(for: colDate)
+                                let isColToday = Calendar.current.isDateInToday(colDate)
+                                let formattedDateStr = colDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+
+                                VStack(spacing: 0) {
+                                    // Column Day Header
+                                    HStack(spacing: 4) {
+                                        Text(formattedDateStr)
+                                            .font(.caption2.weight(.bold))
+                                            .foregroundStyle(isColToday ? Color.indigo : Color.primary)
+                                            .lineLimit(1)
                                         if isColToday {
-                                            let h = Calendar.current.component(.hour, from: now)
-                                            if h >= 7 && h <= 22 {
-                                                Rectangle()
-                                                    .fill(Color.red)
-                                                    .frame(height: 2)
-                                                    .offset(y: currentTimePx)
-                                            }
-                                        }
-
-                                        // Render Transport Time Blocks
-                                        ForEach(transportBlocks, id: \.id) { tb in
-                                            HStack(spacing: 4) {
-                                                Text("🚗")
-                                                    .font(.system(size: 10))
-                                                Text("Travel (\(tb.duration)m): \(tb.from) ➔ \(tb.to)")
-                                                    .font(.system(size: 8, weight: .bold))
-                                                    .foregroundStyle(.orange)
-                                                    .lineLimit(1)
-                                            }
-                                            .padding(.horizontal, 4)
-                                            .frame(width: max(50, geo.size.width - 8), height: tb.height, alignment: .leading)
-                                            .background(
-                                                RoundedRectangle(cornerRadius: 6)
-                                                    .fill(Color.orange.opacity(0.18))
-                                            )
-                                            .overlay(
-                                                RoundedRectangle(cornerRadius: 6)
-                                                    .stroke(Color.orange, style: StrokeStyle(lineWidth: 1, dash: [4]))
-                                            )
-                                            .offset(x: 4, y: tb.top)
-                                        }
-
-                                        // Render Task Cards
-                                        ForEach(todosForDay) { todo in
-                                            let metrics = getPushedMetrics(for: todo, targetDate: colDate)
-                                            let cat = category(for: todo.categoryId)
-                                            let layout = overlapMap[todo.id] ?? (0, 1)
-
-                                            CalendarCardView(
-                                                todo: todo,
-                                                metrics: metrics,
-                                                cat: cat,
-                                                layout: layout,
-                                                containerWidth: geo.size.width,
-                                                draggingTodoId: draggingTodoId,
-                                                dragYTranslation: dragYTranslation,
-                                                viewModel: viewModel,
-                                                onDragChanged: { offset in
-                                                    draggingTodoId = todo.id
-                                                    dragYTranslation = offset
-                                                },
-                                                onDragEnded: { offset in
-                                                    draggingTodoId = nil
-                                                    dragYTranslation = 0
-                                                    updateTimeForTodo(todo, verticalOffset: offset)
-                                                }
-                                            )
+                                            Text("TODAY")
+                                                .font(.system(size: 7, weight: .black))
+                                                .padding(.horizontal, 3)
+                                                .padding(.vertical, 1)
+                                                .background(Capsule().fill(Color.indigo))
+                                                .foregroundStyle(.white)
                                         }
                                     }
+                                    .frame(height: 32)
+                                    .frame(maxWidth: .infinity)
+                                    .background(isColToday ? Color.indigo.opacity(0.1) : Color.secondary.opacity(0.06))
+                                    .border(Color.secondary.opacity(0.15), width: 0.5)
+
+                                    // Hour Grid Lines & Task Cards Container
+                                    GeometryReader { geo in
+                                        ZStack(alignment: .topLeading) {
+                                            // Grid lines
+                                            VStack(spacing: 0) {
+                                                ForEach(hours, id: \.self) { _ in
+                                                    VStack {
+                                                        Divider()
+                                                        Spacer()
+                                                    }
+                                                    .frame(height: 60)
+                                                }
+                                            }
+
+                                            // Current Time Bar
+                                            if isColToday {
+                                                let h = Calendar.current.component(.hour, from: now)
+                                                if h >= 7 && h <= 22 {
+                                                    Rectangle()
+                                                        .fill(Color.red)
+                                                        .frame(height: 2)
+                                                        .offset(y: currentTimePx)
+                                                }
+                                            }
+
+                                            // Render Transport Time Blocks
+                                            ForEach(transportBlocks, id: \.id) { tb in
+                                                HStack(spacing: 2) {
+                                                    Text("🚗")
+                                                        .font(.system(size: 9))
+                                                    Text("\(tb.duration)m: \(tb.from) ➔ \(tb.to)")
+                                                        .font(.system(size: 8, weight: .bold))
+                                                        .foregroundStyle(.orange)
+                                                        .lineLimit(1)
+                                                }
+                                                .padding(.horizontal, 4)
+                                                .frame(width: max(40, geo.size.width - 6), height: tb.height, alignment: .leading)
+                                                .background(
+                                                    RoundedRectangle(cornerRadius: 6)
+                                                        .fill(Color.orange.opacity(0.18))
+                                                )
+                                                .overlay(
+                                                    RoundedRectangle(cornerRadius: 6)
+                                                        .stroke(Color.orange, style: StrokeStyle(lineWidth: 1, dash: [3]))
+                                                )
+                                                .offset(x: 3, y: tb.top)
+                                            }
+
+                                            // Render Task Cards
+                                            ForEach(todosForDay) { todo in
+                                                let metrics = getPushedMetrics(for: todo, targetDate: colDate)
+                                                let cat = category(for: todo.categoryId)
+                                                let layout = overlapMap[todo.id] ?? (0, 1)
+
+                                                CalendarCardView(
+                                                    todo: todo,
+                                                    metrics: metrics,
+                                                    cat: cat,
+                                                    layout: layout,
+                                                    containerWidth: geo.size.width,
+                                                    draggingTodoId: draggingTodoId,
+                                                    dragYTranslation: dragYTranslation,
+                                                    viewModel: viewModel,
+                                                    onDragChanged: { offset in
+                                                        draggingTodoId = todo.id
+                                                        dragYTranslation = offset
+                                                    },
+                                                    onDragEnded: { offset in
+                                                        draggingTodoId = nil
+                                                        dragYTranslation = 0
+                                                        updateTimeForTodo(todo, verticalOffset: offset)
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                    .frame(height: CGFloat(hours.count * 60))
                                 }
-                                .frame(height: CGFloat(hours.count * 60))
+                                .frame(width: calculatedColWidth)
+                                .border(Color.secondary.opacity(0.15), width: 0.5)
                             }
-                            .frame(width: calendarSpan == 1 ? 300 : (calendarSpan == 3 ? 180 : 130))
-                            .border(Color.secondary.opacity(0.15), width: 0.5)
                         }
                     }
                 }
             }
+            .background(Color.primary.opacity(0.02))
         }
-        .background(Color.primary.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 16))
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { input in
             now = input
         }
@@ -352,94 +364,5 @@ struct CalendarHourlyGrid: View {
         if let idx = viewModel.todos.firstIndex(where: { $0.id == todo.id }) {
             viewModel.todos[idx] = updated
         }
-    }
-}
-
-// MARK: - Extracted Card View Subview for Fast Swift Compilation
-struct CalendarCardView: View {
-    let todo: TodoEntry
-    let metrics: (top: CGFloat, height: CGFloat, isPushed: Bool, compressedMinutes: Int)
-    let cat: Category?
-    let layout: (colIndex: Int, totalCols: Int)
-    let containerWidth: CGFloat
-    let draggingTodoId: UUID?
-    let dragYTranslation: CGFloat
-    @ObservedObject var viewModel: TodoViewModel
-    let onDragChanged: (CGFloat) -> Void
-    let onDragEnded: (CGFloat) -> Void
-
-    private var catColor: Color {
-        Color(hex: cat?.colorHex ?? "7C6FF7")
-    }
-
-    var body: some View {
-        let colWidth = containerWidth / CGFloat(layout.totalCols)
-        let leftOffset = CGFloat(layout.colIndex) * colWidth
-        let currentDragOffset = (draggingTodoId == todo.id) ? dragYTranslation : 0
-
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 2) {
-                if let icon = cat?.icon {
-                    Text(icon).font(.system(size: 10))
-                }
-                Text(todo.title)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Spacer()
-
-                if todo.status != .completed {
-                    Button {
-                        viewModel.toggleComplete(todo)
-                    } label: {
-                        Image(systemName: todo.status == .inProgress ? "stop.fill" : "play.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(todo.status == .inProgress ? .red : .green)
-                    }
-                }
-            }
-
-            HStack(spacing: 4) {
-                Text("⏰ \(todo.plannedStartTime ?? "09:00")")
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-
-                if let loc = todo.location, !loc.isEmpty {
-                    Text("📍 \(loc)")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.green)
-                        .lineLimit(1)
-                }
-
-                if let priority = todo.priority {
-                    Text(priority.badgeText)
-                        .font(.system(size: 8, weight: .black))
-                        .foregroundStyle(.red)
-                }
-            }
-        }
-        .padding(6)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(metrics.isPushed ? Color.orange.opacity(0.15) : Color.primary.opacity(0.08))
-        )
-        .overlay(
-            Rectangle()
-                .fill(metrics.isPushed ? Color.orange : catColor)
-                .frame(width: 3),
-            alignment: .leading
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
-        .frame(width: max(50, colWidth - 4), height: metrics.height, alignment: .topLeading)
-        .gesture(
-            DragGesture()
-                .onChanged { value in
-                    onDragChanged(value.translation.height)
-                }
-                .onEnded { value in
-                    onDragEnded(value.translation.height)
-                }
-        )
     }
 }

@@ -27,12 +27,12 @@ struct FutureView: View {
 
     var body: some View {
         NavigationView {
-            VStack(spacing: 0) {
-                // Header Bar with Prominent Settings Button
-                HStack {
+            VStack(spacing: 12) {
+                // Header Bar Row 1: Title, Date, Account Profile, Settings
+                HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("🗓️ Future Schedule")
-                            .font(.title2.weight(.bold))
+                            .font(.title3.weight(.bold))
                             .foregroundStyle(.primary)
 
                         Text(viewModel.selectedFutureDate.formatted(.dateTime.weekday(.wide).month().day()))
@@ -42,21 +42,35 @@ struct FutureView: View {
 
                     Spacer()
 
-                    // Toggle View Switcher: List | Calendar | Kanban
-                    Picker("Layout", selection: $viewModel.displayStyle) {
-                        Text("List").tag(DisplayStyle.list)
-                        Text("Calendar").tag(DisplayStyle.calendar)
-                        Text("Kanban").tag(DisplayStyle.kanban)
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 190)
+                    // User Account Profile Pill Button
+                    Button {
+                        viewModel.showingAccountModal = true
+                    } label: {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(Color.indigo)
+                                .frame(width: 26, height: 26)
+                                .overlay(
+                                    Text(viewModel.userAccount.name.prefix(1).uppercased())
+                                        .font(.caption2.weight(.bold))
+                                        .foregroundStyle(.white)
+                                )
 
-                    // Prominent Settings Button
+                            Text("👑 \(viewModel.userAccount.tier)")
+                                .font(.caption2.weight(.heavy))
+                                .foregroundStyle(.indigo)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(Color.indigo.opacity(0.15)))
+                    }
+
+                    // Settings Button
                     Button {
                         viewModel.showingSettings = true
                     } label: {
                         Image(systemName: "gearshape.fill")
-                            .font(.system(size: 16, weight: .bold))
+                            .font(.system(size: 15, weight: .bold))
                             .padding(8)
                             .background(Circle().fill(Color.indigo))
                             .foregroundStyle(.white)
@@ -64,7 +78,15 @@ struct FutureView: View {
                 }
                 .padding(.horizontal)
                 .padding(.top, 8)
-                .padding(.bottom, 12)
+
+                // Header Bar Row 2: Full-Width Layout Switcher (List | Calendar | Kanban)
+                Picker("Layout", selection: $viewModel.displayStyle) {
+                    Text("List 📝").tag(DisplayStyle.list)
+                    Text("Calendar 🗓️").tag(DisplayStyle.calendar)
+                    Text("Kanban 📋").tag(DisplayStyle.kanban)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
 
                 // Week Navigator Bar
                 HStack {
@@ -120,7 +142,6 @@ struct FutureView: View {
                     }
                 }
                 .padding(.horizontal)
-                .padding(.bottom, 10)
 
                 // Render selected layout: List, Calendar, or Kanban
                 if viewModel.displayStyle == .list {
@@ -134,6 +155,7 @@ struct FutureView: View {
                                     HStack {
                                         Text(todo.title)
                                             .font(.body.weight(.bold))
+                                            .lineLimit(2)
                                         Spacer()
                                         if let icon = cat?.icon {
                                             Text(icon).font(.caption)
@@ -149,6 +171,7 @@ struct FutureView: View {
                                             Text("📍 \(loc)")
                                                 .font(.caption.weight(.bold))
                                                 .foregroundStyle(.green)
+                                                .lineLimit(1)
                                         }
                                     }
                                 }
@@ -173,6 +196,7 @@ struct FutureView: View {
                                 .padding(40)
                             }
                         }
+                        .padding(.bottom, 20)
                     }
                 } else if viewModel.displayStyle == .calendar {
                     CalendarHourlyGrid(viewModel: viewModel, date: viewModel.selectedFutureDate)
@@ -185,6 +209,9 @@ struct FutureView: View {
             #endif
             .sheet(isPresented: $viewModel.showingSettings) {
                 SettingsView(viewModel: viewModel)
+            }
+            .sheet(isPresented: $viewModel.showingAccountModal) {
+                AccountView(viewModel: viewModel)
             }
         }
         #if os(iOS)
