@@ -366,3 +366,92 @@ struct CalendarHourlyGrid: View {
         }
     }
 }
+
+// MARK: - Extracted Card View Subview for Fast Swift Compilation
+struct CalendarCardView: View {
+    let todo: TodoEntry
+    let metrics: (top: CGFloat, height: CGFloat, isPushed: Bool, compressedMinutes: Int)
+    let cat: Category?
+    let layout: (colIndex: Int, totalCols: Int)
+    let containerWidth: CGFloat
+    let draggingTodoId: UUID?
+    let dragYTranslation: CGFloat
+    @ObservedObject var viewModel: TodoViewModel
+    let onDragChanged: (CGFloat) -> Void
+    let onDragEnded: (CGFloat) -> Void
+
+    private var catColor: Color {
+        Color(hex: cat?.colorHex ?? "7C6FF7")
+    }
+
+    var body: some View {
+        let colWidth = containerWidth / CGFloat(layout.totalCols)
+        let leftOffset = CGFloat(layout.colIndex) * colWidth
+        let currentDragOffset = (draggingTodoId == todo.id) ? dragYTranslation : 0
+
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 2) {
+                if let icon = cat?.icon {
+                    Text(icon).font(.system(size: 10))
+                }
+                Text(todo.title)
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Spacer()
+
+                if todo.status != .completed {
+                    Button {
+                        viewModel.toggleComplete(todo)
+                    } label: {
+                        Image(systemName: todo.status == .inProgress ? "stop.fill" : "play.fill")
+                            .font(.system(size: 9))
+                            .foregroundStyle(todo.status == .inProgress ? .red : .green)
+                    }
+                }
+            }
+
+            HStack(spacing: 4) {
+                Text("⏰ \(todo.plannedStartTime ?? "09:00")")
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+
+                if let loc = todo.location, !loc.isEmpty {
+                    Text("📍 \(loc)")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.green)
+                        .lineLimit(1)
+                }
+
+                if let priority = todo.priority {
+                    Text(priority.badgeText)
+                        .font(.system(size: 8, weight: .black))
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .padding(6)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(metrics.isPushed ? Color.orange.opacity(0.15) : Color.primary.opacity(0.08))
+        )
+        .overlay(
+            Rectangle()
+                .fill(metrics.isPushed ? Color.orange : catColor)
+                .frame(width: 3),
+            alignment: .leading
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
+        .frame(width: max(50, colWidth - 4), height: metrics.height, alignment: .topLeading)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    onDragChanged(value.translation.height)
+                }
+                .onEnded { value in
+                    onDragEnded(value.translation.height)
+                }
+        )
+    }
+}
