@@ -1,0 +1,151 @@
+/* src/components/views/FutureView.css */
+.future-week-navigator {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+
+.week-header-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.week-label-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.week-title {
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.week-range {
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--accent-primary);
+  background: var(--bg-surface-elevated);
+  padding: 4px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.vertical-scroll-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.scroll-tip {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.week-nav-arrow-btn {
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  font-weight: 700;
+  font-size: 0.82rem;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+}
+
+.week-nav-arrow-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-color-strong);
+  color: var(--accent-primary);
+}
+
+.week-nav-arrow-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.days-of-week-bar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 10px;
+}
+
+.day-pill-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 8px;
+  background: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.day-pill-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-color-strong);
+}
+
+.day-pill-btn.selected {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  box-shadow: 0 4px 12px var(--accent-glow);
+}
+
+.day-pill-btn.selected .day-name,
+.day-pill-btn.selected .day-num {
+  color: #ffffff;
+}
+
+.day-pill-btn.is-today:not(.selected) {
+  border-color: var(--color-warning);
+}
+
+.day-name {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+}
+
+.day-num {
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--text-primary);
+}
+
+.day-task-dot {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  background: var(--accent-secondary);
+  color: #000;
+  font-size: 0.7rem;
+  font-weight: 800;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.future-list-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
