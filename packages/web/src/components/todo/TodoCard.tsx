@@ -23,7 +23,9 @@ export const TodoCard: React.FC<TodoCardProps> = ({ todo }) => {
 
   const category = categories.find((c) => c.id === todo.categoryId);
   const isCompleted = todo.status === 'done';
-  const isRunning = todo.status === 'in-progress';
+  const isInProgress = todo.status === 'in-progress';
+  const isRunning = (todo.sessions || []).some((s) => !s.stoppedAt);
+
 
   const subtasks = todo.subtasks || [];
   const completedSubtasks = subtasks.filter((st) => st.completed).length;
@@ -119,13 +121,14 @@ export const TodoCard: React.FC<TodoCardProps> = ({ todo }) => {
         <div className="card-right-section">
           {!isCompleted && (
             <button
-              className={`card-timer-btn ${isRunning ? 'running' : ''}`}
+              className={`card-timer-btn ${isRunning ? 'running' : isInProgress ? 'paused' : ''}`}
               onClick={() => (isRunning ? stopTimer(todo.id) : startTimer(todo.id))}
-              title={isRunning ? 'Pause Timer' : 'Start Timer'}
+              title={isRunning ? 'Pause Timer' : isInProgress ? 'Resume Timer' : 'Start Timer'}
             >
-              {isRunning ? '⏱️ Running...' : '▶️ Start Timer'}
+              {isRunning ? '⏱️ Running...' : isInProgress ? '▶️ Resume' : '▶️ Start'}
             </button>
           )}
+
 
           <button
             className="card-delete-btn"

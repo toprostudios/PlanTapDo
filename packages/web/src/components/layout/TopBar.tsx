@@ -12,9 +12,11 @@ export const TopBar: React.FC = () => {
 
   return (
     <header className="top-bar">
-      <div className="left-section">
-        <span className="app-title">🕒 PlanTapDo</span>
+      <div className="left-section" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <img src="/logo.png" alt="PlanTapDo Logo" style={{ height: '28px', width: '28px', borderRadius: '6px', objectFit: 'contain' }} />
+        <span className="app-title">PlanTapDo</span>
       </div>
+
       <div className="right-section">
         <div className="view-toggle">
           <button

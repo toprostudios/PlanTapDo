@@ -1,12 +1,10 @@
 // src/components/views/TeamManagerView.tsx
 import React, { useState } from 'react';
-import { useUIStore } from '../../store/uiStore';
 import { useTodoStore } from '../../store/todoStore';
 import type { PriorityLevel } from '../../types';
 import './TeamManagerView.css';
 
 export const TeamManagerView: React.FC = () => {
-  const openSettings = useUIStore((state) => state.openSettings);
   const teamMembers = useTodoStore((state) => state.teamMembers);
   const todos = useTodoStore((state) => state.todos);
   const categories = useTodoStore((state) => state.categories);
@@ -95,9 +93,6 @@ export const TeamManagerView: React.FC = () => {
           >
             {showAddMemberForm ? 'Cancel' : '➕ Add Team Member'}
           </button>
-          <button className="categories-settings-btn btn-primary" onClick={openSettings}>
-            ⚙️ Settings
-          </button>
         </div>
       </div>
 
@@ -181,6 +176,8 @@ export const TeamManagerView: React.FC = () => {
         </form>
       </div>
 
+      {/* Scrollable content: filter bar + team matrix */}
+      <div className="team-scroll-container">
       {/* Filter Tabs */}
       <div className="team-filter-bar">
         <span className="filter-label">Filter Team:</span>
@@ -341,6 +338,7 @@ export const TeamManagerView: React.FC = () => {
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

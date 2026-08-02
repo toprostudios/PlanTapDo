@@ -1,15 +1,34 @@
 /* src/components/layout/AppShell.css */
+
+/* ─── Global reset for full-screen layout ─── */
+html, body, #root {
+  height: 100%;
+  height: 100dvh;
+  overflow: hidden;
+}
+
 .app-shell-root {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  width: 100vw;
+  height: 100dvh;
+  width: 100%;
   overflow: hidden;
   background-color: var(--bg-app);
 }
 
 .app-main-viewport {
   flex: 1;
-  overflow-y: auto;
+  min-height: 0;          /* critical for flex shrink */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;        /* clips content; inner regions scroll themselves */
   position: relative;
+}
+
+/* On mobile, the fixed bottom nav covers content — pad the viewport */
+@media (max-width: 768px) {
+  .app-main-viewport {
+    padding-bottom: calc(var(--mobile-nav-height) + env(safe-area-inset-bottom, 0px));
+  }
 }

@@ -80,7 +80,7 @@ export const useUIStore = create<UIState>()(
       setView: (tab) => set({ activeTab: tab }),
     }),
     {
-      name: 'timetodo-ui-v2',
+      name: 'plantapdo-ui-v2',
       storage: createJSONStorage(() => localStorage),
     }
   )

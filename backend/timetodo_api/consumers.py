@@ -1,42 +1,49 @@
 import json
 from channels.generic.websocket import AsyncWebsocketConsumer
-from channels.db import database_sync_to_async
-from .models import TodoEntry
 
 class TodoConsumer(AsyncWebsocketConsumer):
-    """WebSocket consumer for real‑time Todo updates.
-    Clients should connect to ``ws://<host>/ws/todos/``.
-    The consumer joins a group named ``todo_updates`` and forwards any
-    messages received from the client to that group. Backend signal handlers
-    can broadcast to the same group to push updates to all connected clients.
+    """WebSocket consumer for real-time state sync updates per user.
+    Clients connect to `ws://<host>/ws/todos/?user_id=<user_id>` or receive broadcasts.
     """
 
     async def connect(self):
-        self.group_name = "todo_updates"
-        # Accept the connection
-        await self.accept()
-        # Add this socket to the group
+        query_string = self.scope.get("query_string", b"").decode("utf-8")
+        user_id = "default"
+        if "user_id=" in query_string:
+            user_id = query_string.split("user_id=")[-1].split("&")[0]
+
+        self.group_name = f"user_{user_id}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
+        await self.accept()
 
     async def disconnect(self, close_code):
-        # Remove from group on disconnect
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive(self, text_data=None, bytes_data=None):
-        # Echo received message to the group (could be extended for commands)
         if text_data:
-            await self.channel_layer.group_send(
-                self.group_name,
+            try:
+                data = json.loads(text_data)
+                await self.channel_layer.group_send(
+                    self.group_name,
+                    {
+                        "type": "sync_event",
+                        "event_type": data.get("type", "custom_event"),
+                        "data": data.get("data", {}),
+                    },
+                )
+            except Exception:
+                pass
+
+    async def sync_event(self, event):
+        await self.send(
+            text_data=json.dumps(
                 {
-                    "type": "todo.message",
-                    "message": text_data,
-                },
+                    "event_type": event.get("event_type"),
+                    "data": event.get("data"),
+                }
             )
+        )
 
     async def todo_message(self, event):
-        # Send message to WebSocket client
         await self.send(text_data=event["message"])
 
-    @database_sync_to_async
-    def get_todo(self, todo_id: str):
-        return TodoEntry.objects.get(id=todo_id)

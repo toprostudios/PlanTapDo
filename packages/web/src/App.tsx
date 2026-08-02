@@ -20,6 +20,21 @@ export function App() {
     document.documentElement.setAttribute('data-theme', theme);
     // Refresh todos or load initial state
     refreshTodos();
+
+    // Support URL hash routing (#preview, #today, #future, #categories, #team)
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '').toLowerCase();
+      if (hash === 'today' || hash === 'future' || hash === 'categories' || hash === 'team') {
+        useUIStore.getState().setActiveTab(hash);
+      } else if (hash === 'preview') {
+        // #preview routes directly to today view
+        useUIStore.getState().setActiveTab('today');
+      }
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, [theme, refreshTodos]);
 
   return (

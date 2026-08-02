@@ -160,3 +160,31 @@
   font-size: 0.82rem;
   font-weight: 600;
 }
+
+/* Mobile Responsive Touch Scroll for iPhone */
+@media (max-width: 768px) {
+  .kanban-board-container {
+    padding: 6px 4px;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .kanban-columns-grid {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    gap: 10px;
+    padding-bottom: 4px;
+  }
+
+  .kanban-column {
+    min-width: 82vw;
+    scroll-snap-align: center;
+    flex-shrink: 0;
+  }
+}

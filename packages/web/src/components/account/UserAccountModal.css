@@ -274,3 +274,41 @@
   display: flex;
   justify-content: flex-end;
 }
+
+/* Mobile Bottom Sheet Styling for iPhone */
+@media (max-width: 640px) {
+  .account-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .account-dialog {
+    max-height: 90dvh;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .account-dialog-header {
+    padding: 14px 16px;
+  }
+
+  .account-dialog-body {
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .active-account-card {
+    padding: 12px;
+    gap: 12px;
+  }
+
+  .active-account-avatar {
+    width: 44px;
+    height: 44px;
+    font-size: 1.1rem;
+  }
+
+  .account-dialog-footer {
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px)) 16px;
+  }
+}

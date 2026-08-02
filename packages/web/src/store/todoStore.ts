@@ -5,6 +5,8 @@ import { v4 as uuidv4 } from 'uuid';
 import type { AppState, TodoEntry, Category, TimeSession, TodoStatus, Subtask, UserAccount, TeamMember } from '../types';
 import { setWsMessageHandler } from '../websocket';
 import * as api from '../api/todos';
+import * as authApi from '../api/auth';
+
 
 const getTodayIso = () => new Date().toISOString().split('T')[0];
 const getFutureIso = (daysAhead: number) => {
@@ -332,8 +334,20 @@ export const useTodoStore = create<AppState>()(
         }
       },
 
-      createAndSwitchAccount: (name, email) => {
+      createAndSwitchAccount: async (name, email) => {
         if (!name.trim() || !email.trim()) return;
+        const username = email.trim().split('@')[0] || `user_${Date.now()}`;
+        try {
+          await authApi.registerAccount({
+            username,
+            email: email.trim(),
+            first_name: name.trim(),
+            password: 'password123',
+          });
+        } catch (e) {
+          console.warn('Backend account registration notice:', e);
+        }
+
         const newAcc: UserAccount = {
           id: uuidv4(),
           name: name.trim(),
@@ -346,7 +360,19 @@ export const useTodoStore = create<AppState>()(
           availableAccounts: [...state.availableAccounts, newAcc],
           userAccount: newAcc,
         }));
+
+        try {
+          const currentState = get();
+          await api.pushSyncState({
+            categories: currentState.categories,
+            todos: currentState.todos,
+            location_travel_times: currentState.locationTravelTimes,
+          });
+        } catch (e) {
+          console.warn('Backend initial cloud sync notice:', e);
+        }
       },
+
 
       // Category actions
       addCategory: (cat) => {
@@ -514,13 +540,14 @@ export const useTodoStore = create<AppState>()(
           const updated = state.todos.map((t) => {
             if (t.id === todoId) {
               const updatedSessions = t.sessions.map((s) => (!s.stoppedAt ? { ...s, stoppedAt: now } : s));
-              return { ...t, status: 'todo' as TodoStatus, sessions: updatedSessions };
+              return { ...t, status: 'in-progress' as TodoStatus, sessions: updatedSessions };
             }
             return t;
           });
           return { todos: updated, activeSessionId: undefined };
         });
       },
+
 
       finishTodo: (todoId) => {
         const now = new Date().toISOString();
@@ -578,7 +605,7 @@ export const useTodoStore = create<AppState>()(
       },
     }),
     {
-      name: 'timetodo-store-v2',
+      name: 'plantapdo-store-v2',
       storage: createJSONStorage(() => localStorage),
     }
   )

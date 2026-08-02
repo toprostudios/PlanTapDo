@@ -1,7 +1,6 @@
 // src/components/views/TodayView.tsx
 import React, { useState } from 'react';
 import { useTodoStore } from '../../store/todoStore';
-import { useUIStore } from '../../store/uiStore';
 import { TodoCard } from '../todo/TodoCard';
 import { CalendarDayGrid } from '../calendar/CalendarDayGrid';
 import { KanbanBoardView } from './KanbanBoardView';
@@ -13,7 +12,6 @@ export type ViewMode = 'list' | 'calendar' | 'kanban';
 export const TodayView: React.FC = () => {
   const todos = useTodoStore((state) => state.todos);
   const reorderTodos = useTodoStore((state) => state.reorderTodos);
-  const openSettings = useUIStore((state) => state.openSettings);
 
   // View toggle: List | Calendar | Kanban
   const [viewMode, setViewMode] = useState<ViewMode>('list');
@@ -73,29 +71,25 @@ export const TodayView: React.FC = () => {
             <button
               className={`view-toggle-btn ${viewMode === 'list' ? 'active' : ''}`}
               onClick={() => setViewMode('list')}
-              title="List View (Tasks in order of time)"
+              title="List View"
             >
-              📝 List View
+              📝 List
             </button>
             <button
               className={`view-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}`}
               onClick={() => setViewMode('calendar')}
-              title="Calendar View (Timeline layout)"
+              title="Calendar View"
             >
               📅 Calendar
             </button>
             <button
               className={`view-toggle-btn ${viewMode === 'kanban' ? 'active' : ''}`}
               onClick={() => setViewMode('kanban')}
-              title="Kanban Board View"
+              title="Kanban View"
             >
-              📋 Kanban Board
+              📋 Kanban
             </button>
           </div>
-
-          <button className="view-settings-btn btn-primary" onClick={openSettings} title="Open Settings">
-            ⚙️ Settings
-          </button>
         </div>
       </div>
 

@@ -9,7 +9,7 @@ import os.log
 
 final class SentryManager {
     static let shared = SentryManager()
-    private let log = Logger(subsystem: "com.timetodo.app", category: "Sentry")
+    private let log = Logger(subsystem: "com.plantapdo.app", category: "Sentry")
 
     private init() {}
 

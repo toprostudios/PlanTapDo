@@ -47,3 +47,7 @@ struct SettingsView: View {
         }
     }
 }
+
+#Preview("Settings View") {
+    SettingsView(viewModel: TodoViewModel())
+}

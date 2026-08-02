@@ -123,17 +123,17 @@ struct CalendarHourlyGrid: View {
 
     var body: some View {
         GeometryReader { outerGeo in
-            let totalAvailableWidth = max(300, outerGeo.size.width)
-            let timeColWidth: CGFloat = 50
+            let totalAvailableWidth = max(320, outerGeo.size.width)
+            let timeColWidth: CGFloat = 46
             let gridWidth = totalAvailableWidth - timeColWidth
 
             let calculatedColWidth: CGFloat = {
                 if calendarSpan == 1 {
-                    return gridWidth - 10
+                    return gridWidth - 6
                 } else if calendarSpan == 3 {
-                    return max(110, gridWidth / 3.0)
+                    return max(100, gridWidth / 3.0)
                 } else {
-                    return 110
+                    return 100
                 }
             }()
 
@@ -169,16 +169,16 @@ struct CalendarHourlyGrid: View {
                         // Hour Grid Lines & Labels Column
                         VStack(spacing: 0) {
                             Text("Time")
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: 9, weight: .bold))
                                 .foregroundStyle(.secondary)
-                                .frame(height: 32)
+                                .frame(height: 28)
 
                             ForEach(hours, id: \.self) { hour in
                                 HStack(alignment: .top) {
                                     Text(formatHour(hour))
                                         .font(.system(size: 9, weight: .bold))
                                         .foregroundStyle(.secondary)
-                                        .frame(width: 44, alignment: .trailing)
+                                        .frame(width: 40, alignment: .trailing)
                                 }
                                 .frame(height: 60)
                             }
@@ -210,7 +210,7 @@ struct CalendarHourlyGrid: View {
                                                 .foregroundStyle(.white)
                                         }
                                     }
-                                    .frame(height: 32)
+                                    .frame(height: 28)
                                     .frame(maxWidth: .infinity)
                                     .background(isColToday ? Color.indigo.opacity(0.1) : Color.secondary.opacity(0.06))
                                     .border(Color.secondary.opacity(0.15), width: 0.5)
@@ -243,15 +243,14 @@ struct CalendarHourlyGrid: View {
                                             // Render Transport Time Blocks
                                             ForEach(transportBlocks, id: \.id) { tb in
                                                 HStack(spacing: 2) {
-                                                    Text("🚗")
-                                                        .font(.system(size: 9))
+                                                    Text("🚗").font(.system(size: 9))
                                                     Text("\(tb.duration)m: \(tb.from) ➔ \(tb.to)")
                                                         .font(.system(size: 8, weight: .bold))
                                                         .foregroundStyle(.orange)
                                                         .lineLimit(1)
                                                 }
                                                 .padding(.horizontal, 4)
-                                                .frame(width: max(40, geo.size.width - 6), height: tb.height, alignment: .leading)
+                                                .frame(width: max(35, geo.size.width - 4), height: tb.height, alignment: .leading)
                                                 .background(
                                                     RoundedRectangle(cornerRadius: 6)
                                                         .fill(Color.orange.opacity(0.18))
@@ -260,7 +259,7 @@ struct CalendarHourlyGrid: View {
                                                     RoundedRectangle(cornerRadius: 6)
                                                         .stroke(Color.orange, style: StrokeStyle(lineWidth: 1, dash: [3]))
                                                 )
-                                                .offset(x: 3, y: tb.top)
+                                                .offset(x: 2, y: tb.top)
                                             }
 
                                             // Render Task Cards
@@ -300,6 +299,7 @@ struct CalendarHourlyGrid: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color.primary.opacity(0.02))
         }
         .onReceive(Timer.publish(every: 10, on: .main, in: .common).autoconnect()) { input in
@@ -430,7 +430,7 @@ struct CalendarCardView: View {
                 }
             }
         }
-        .padding(6)
+        .padding(5)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(metrics.isPushed ? Color.orange.opacity(0.15) : Color.primary.opacity(0.08))
@@ -443,7 +443,7 @@ struct CalendarCardView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
         .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
-        .frame(width: max(50, colWidth - 4), height: metrics.height, alignment: .topLeading)
+        .frame(width: max(45, colWidth - 4), height: metrics.height, alignment: .topLeading)
         .gesture(
             DragGesture()
                 .onChanged { value in

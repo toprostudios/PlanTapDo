@@ -148,3 +148,35 @@
   display: flex;
   justify-content: flex-end;
 }
+
+/* Mobile Bottom Sheet Styling for iPhone */
+@media (max-width: 640px) {
+  .analytics-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .analytics-dialog {
+    max-height: 90dvh;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+
+  .analytics-dialog-header {
+    padding: 14px 16px;
+  }
+
+  .analytics-dialog-body {
+    padding: 16px;
+    gap: 16px;
+  }
+
+  .metrics-cards-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .analytics-dialog-footer {
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom, 0px)) 16px;
+  }
+}

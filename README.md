@@ -2,7 +2,7 @@
 
 > **PlanTapDo** is a next-generation, high-performance productivity platform combining the best capabilities of **Todoist** (smart task management), **Google Calendar** (drag-and-drop timeline scheduling), **Notion** (rich document notes & Kanban boards), **Toggl Track** (live active time tracking & efficiency analytics), and **Enterprise Team Management**.
 
-Available as a **React Web Application** (`packages/web`) and an **iOS SwiftUI Application** (`ios/TimeToDoApp`).
+Available as a **React Web Application** (`packages/web`) and an **iOS SwiftUI Application** (`ios/PlanTapDo`).
 
 ---
 
@@ -28,13 +28,13 @@ npm run dev
 npm run build
 ```
 
-### iOS Application (`ios/TimeToDoApp`)
+### iOS Application (`ios/PlanTapDo`)
 ```bash
 # Open Xcode Project
-open ios/TimeToDoApp.xcodeproj
+open ios/PlanTapDo.xcodeproj
 
 # Swift Typecheck Verification (CLI)
-swiftc -typecheck -sdk $(xcrun --sdk macosx --show-sdk-path) ios/TimeToDoApp/*.swift
+swiftc -typecheck -sdk $(xcrun --sdk macosx --show-sdk-path) ios/PlanTapDo/*.swift
 ```
 
 ---

@@ -3,12 +3,23 @@
   display: grid;
   grid-template-columns: 320px 1fr;
   gap: 20px;
-  min-height: 600px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 @media (max-width: 900px) {
   .categories-layout-grid {
-    grid-template-columns: 1fr;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 }
 
@@ -235,7 +246,8 @@
   gap: 8px;
   padding: 8px 28px;
   background: var(--bg-surface);
-  border-y: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-color);
   flex-wrap: wrap;
 }
 
@@ -291,4 +303,74 @@
 /* Task Entry Form Content */
 .task-entry-card-content {
   padding: 20px 28px;
+}
+
+/* Mobile Responsive Styling for iPhone */
+@media (max-width: 768px) {
+  .categories-manager-card {
+    padding: 14px;
+  }
+
+  .notion-cover-banner {
+    height: 80px;
+  }
+
+  .notion-icon-badge {
+    left: 14px;
+    bottom: -18px;
+    width: 44px;
+    height: 44px;
+    font-size: 1.6rem;
+  }
+
+  .notion-page-header {
+    padding: 26px 14px 10px 14px;
+  }
+
+  .notion-page-title {
+    font-size: 1.3rem;
+  }
+
+  .notion-toolbar {
+    padding: 8px 14px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .notion-tool-btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .notion-editor-body {
+    padding: 14px;
+  }
+
+  .notion-textarea {
+    min-height: 280px;
+    font-size: 16px !important;
+  }
+
+  .task-entry-card-content {
+    padding: 14px;
+  }
+
+  .panel-subtab-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 12px;
+  }
+
+  .subtab-pills {
+    width: 100%;
+  }
+
+  .subtab-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 4px;
+    font-size: 0.8rem;
+  }
 }

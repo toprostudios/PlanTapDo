@@ -1,4 +1,4 @@
-// Shared TypeScript interfaces for the TimeToDo monorepo
+// Shared TypeScript interfaces for the PlanTapDo monorepo
 // Add more definitions as the project grows.
 
 export interface User {

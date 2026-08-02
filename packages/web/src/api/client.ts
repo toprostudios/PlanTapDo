@@ -4,12 +4,16 @@ const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${baseURL}${endpoint}`;
+  const token = localStorage.getItem('plantapdo_jwt');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(options.headers as Record<string, string> || {}),
+  };
+
   const response = await fetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {}),
-    },
+    headers,
   });
 
   if (!response.ok) {
@@ -18,6 +22,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
   return response.json();
 }
+
 
 const api = {
   get: <T>(endpoint: string) => request<T>(endpoint, { method: 'GET' }),

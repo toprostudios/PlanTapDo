@@ -9,7 +9,7 @@ import os.log
 
 final class AnalyticsManager {
     static let shared = AnalyticsManager()
-    private let log = Logger(subsystem: "com.timetodo.app", category: "Analytics")
+    private let log = Logger(subsystem: "com.plantapdo.app", category: "Analytics")
 
     // AMPLITUDE: private var amplitude: Amplitude?
 

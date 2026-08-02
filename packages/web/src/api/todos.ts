@@ -61,3 +61,8 @@ export const fetchRepeatRules = () => api.get<RepeatRule[]>('/repeat-rules/');
 export const createRepeatRule = (data: Partial<RepeatRule>) => api.post<RepeatRule>('/repeat-rules/', data);
 export const updateRepeatRule = (id: UUID, data: Partial<RepeatRule>) => api.patch<RepeatRule>(`/repeat-rules/${id}/`, data);
 export const deleteRepeatRule = (id: UUID) => api.delete<void>(`/repeat-rules/${id}/`);
+
+// --- Cloud state sync endpoints ---
+export const fetchSyncState = () => api.get<any>('/sync/');
+export const pushSyncState = (payload: any) => api.post<any>('/sync/', payload);
+

@@ -28,6 +28,43 @@ class TodoViewModel: ObservableObject {
     @Published var showingSettings: Bool = false
     @Published var showingAccountModal: Bool = false
 
+    // MARK: - Timer State
+    @Published var activeTimerTodoId: UUID? = nil
+    @Published var timerSecondsElapsed: Int = 0
+    private var timer: Timer? = nil
+
+    var timerFormatted: String {
+        let mins = timerSecondsElapsed / 60
+        let secs = timerSecondsElapsed % 60
+        return String(format: "%02d:%02d", mins, secs)
+    }
+
+    func startTimer(for todo: TodoEntry) {
+        stopTimer()
+        activeTimerTodoId = todo.id
+        if let idx = todos.firstIndex(where: { $0.id == todo.id }) {
+            todos[idx].status = .inProgress
+        }
+        timerSecondsElapsed = 0
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            DispatchQueue.main.async {
+                self?.timerSecondsElapsed += 1
+            }
+        }
+    }
+
+    func stopTimer() {
+        if let activeId = activeTimerTodoId, let idx = todos.firstIndex(where: { $0.id == activeId }) {
+            // Paused - remains inProgress
+            todos[idx].status = .inProgress
+        }
+        timer?.invalidate()
+        timer = nil
+        activeTimerTodoId = nil
+        timerSecondsElapsed = 0
+    }
+
+
     private var cancellables = Set<AnyCancellable>()
     private let api = APIClient.shared
 
@@ -252,21 +289,20 @@ class TodoViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    // MARK: - Actions
     func createTodo(
         title: String,
-        description: String?,
-        doDate: Date,
-        dueDate: Date?,
-        dueTime: String?,
-        descriptiveDeadline: String?,
-        plannedStartTime: String?,
-        plannedDuration: TimeInterval,
-        categoryId: UUID?,
-        priority: PriorityLevel?,
-        location: String?,
-        reminder: String?,
-        labels: [String]?
+        description: String? = nil,
+        doDate: Date = Date(),
+        dueDate: Date? = nil,
+        dueTime: String? = nil,
+        descriptiveDeadline: String? = nil,
+        plannedStartTime: String? = "09:00",
+        plannedDuration: TimeInterval = 1800,
+        categoryId: UUID? = nil,
+        priority: PriorityLevel? = .medium,
+        location: String? = nil,
+        reminder: String? = nil,
+        labels: [String]? = nil
     ) {
         let newTodo = TodoEntry(
             id: UUID(),
@@ -301,7 +337,16 @@ class TodoViewModel: ObservableObject {
         todos.removeAll { $0.id == id }
     }
 
+    func finishTodo(id todoId: UUID) {
+        if let idx = todos.firstIndex(where: { $0.id == todoId }) {
+            todos[idx].status = .completed
+        }
+    }
+
+
+    // MARK: - Duplicate Todo
     func duplicateTodo(_ todo: TodoEntry) {
+
         let copy = TodoEntry(
             id: UUID(),
             title: "\(todo.title) (Copy)",

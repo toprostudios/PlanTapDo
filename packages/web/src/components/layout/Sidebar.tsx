@@ -12,9 +12,11 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside className="sidebar">
-      <div className="logo-area">
-        <h1 className="logo">🕒 PlanTapDo</h1>
+      <div className="logo-area" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <img src="/logo.png" alt="PlanTapDo Logo" style={{ height: '32px', width: '32px', borderRadius: '8px', objectFit: 'contain' }} />
+        <h1 className="logo" style={{ fontSize: '1.2rem', margin: 0 }}>PlanTapDo</h1>
       </div>
+
       <nav className="nav-links">
         <button
           className={`nav-btn ${activeTab === 'today' ? 'active' : ''}`}

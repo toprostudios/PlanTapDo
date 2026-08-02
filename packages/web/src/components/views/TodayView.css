@@ -1,38 +1,45 @@
 /* src/components/views/TodayView.css */
+
+/* ─── Page Container ─────────────────────────────────────────── */
 .view-page-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  padding: 24px;
-  gap: 20px;
+  flex: 1;
+  min-height: 0;
   overflow: hidden;
+  padding: 20px;
+  gap: 12px;
   max-width: 1200px;
   margin: 0 auto;
   width: 100%;
+  box-sizing: border-box;
 }
 
+/* ─── Header Bar ─────────────────────────────────────────────── */
 .view-header-bar {
+  flex-shrink: 0;          /* never compress the header */
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 12px;
 }
 
 .view-title-group {
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .view-main-title {
-  font-size: 1.75rem;
+  font-size: 1.6rem;
   font-weight: 800;
   color: var(--text-primary);
   letter-spacing: -0.02em;
+  margin: 0;
 }
 
 .view-subtitle {
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   color: var(--text-secondary);
   font-weight: 600;
 }
@@ -40,69 +47,127 @@
 .view-header-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
-.today-progress-pill {
-  background: var(--bg-surface-elevated);
-  border: 1px solid var(--border-color);
-  padding: 6px 14px;
-  border-radius: var(--radius-full);
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--accent-primary);
-}
-
-.side-toggle-group {
+/* ─── Toggle Pill Group ──────────────────────────────────────── */
+.view-toggle-pill-group {
   display: flex;
   background: var(--bg-surface-elevated);
   padding: 4px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
+  gap: 2px;
+  flex-shrink: 0;
 }
 
-.toggle-btn {
-  padding: 6px 16px;
-  font-size: 0.88rem;
+.view-toggle-btn {
+  padding: 6px 14px;
+  font-size: 0.85rem;
   font-weight: 700;
   color: var(--text-secondary);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
-.toggle-btn.active {
+.view-toggle-btn.active {
   background: var(--accent-primary);
   color: #ffffff;
   box-shadow: 0 2px 8px var(--accent-glow);
 }
 
-.view-body-content {
+/* ─── Scrollable Task List ───────────────────────────────────── */
+.today-tasks-list-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px;
+  border-radius: var(--radius-lg);
 }
 
-.today-list-view {
+.today-tasks-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
-.empty-state-box {
-  padding: 48px;
+.draggable-todo-wrapper {
+  cursor: grab;
+}
+
+.draggable-todo-wrapper:active {
+  cursor: grabbing;
+}
+
+/* ─── Empty State ────────────────────────────────────────────── */
+.empty-state-card {
+  padding: 40px 20px;
   text-align: center;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   color: var(--text-secondary);
 }
 
 .empty-icon {
-  font-size: 3rem;
+  font-size: 2.8rem;
 }
 
-.empty-state-box h3 {
+.empty-state-card h3 {
   color: var(--text-primary);
   font-weight: 700;
-  font-size: 1.3rem;
+  font-size: 1.2rem;
+  margin: 0;
+}
+
+.empty-state-card p {
+  margin: 0;
+}
+
+/* ─── Mobile (iPhone) ────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .view-page-container {
+    padding: 8px 10px;
+    gap: 6px;
+    margin: 0;
+    max-width: 100%;
+  }
+
+  .view-header-bar {
+    gap: 6px;
+  }
+
+  .view-main-title {
+    font-size: 1.1rem;
+  }
+
+  .view-subtitle {
+    font-size: 0.7rem;
+  }
+
+  .view-settings-btn {
+    display: none !important;
+  }
+
+  .view-toggle-pill-group {
+    padding: 2px;
+  }
+
+  .view-toggle-btn {
+    padding: 4px 7px;
+    font-size: 0.7rem;
+  }
+
+  .today-tasks-list-container {
+    padding: 8px;
+    border-radius: var(--radius-md);
+  }
+
+  .empty-state-card {
+    padding: 20px 10px;
+  }
 }

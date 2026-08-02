@@ -95,9 +95,43 @@ final class APIClient {
         voidRequest("todos/\(id)/", method: "DELETE")
     }
 
+    // MARK: - Account Creation & Syncing
+
+    struct AuthTokens: Decodable {
+        let access: String
+        let refresh: String
+    }
+
+    struct RegisterResponse: Decodable {
+        let id: UUID
+        let username: String
+        let email: String
+        let tokens: AuthTokens
+    }
+
+    struct SyncStateResponse: Decodable {
+        let categories: [Category]
+        let todos: [TodoEntry]
+    }
+
+    func registerAccount(username: String, email: String, password: String) -> AnyPublisher<RegisterResponse, Error> {
+        let payload: [String: String] = [
+            "username": username,
+            "email": email,
+            "password": password
+        ]
+        let data = try? JSONSerialization.data(withJSONObject: payload)
+        return request("auth/register/", method: "POST", body: data)
+    }
+
+    func fetchSyncState() -> AnyPublisher<SyncStateResponse, Error> {
+        request("sync/")
+    }
+
     // MARK: - Categories
 
     func fetchCategories() -> AnyPublisher<[Category], Error> {
         request("categories/")
     }
 }
+

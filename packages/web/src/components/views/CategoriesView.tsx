@@ -1,6 +1,5 @@
 // src/components/views/CategoriesView.tsx
 import React, { useState } from 'react';
-import { useUIStore } from '../../store/uiStore';
 import { useTodoStore } from '../../store/todoStore';
 import type { PriorityLevel } from '../../types';
 import './CategoriesView.css';
@@ -17,7 +16,6 @@ const COLOR_SWATCHES = [
 ];
 
 export const CategoriesView: React.FC = () => {
-  const openSettings = useUIStore((state) => state.openSettings);
   const categories = useTodoStore((state) => state.categories);
   const addCategory = useTodoStore((state) => state.addCategory);
   const updateCategoryNotes = useTodoStore((state) => state.updateCategoryNotes);
@@ -127,11 +125,6 @@ export const CategoriesView: React.FC = () => {
           <span className="view-subtitle">Customize category colors, icon badges, and Notion-style text views</span>
         </div>
 
-        <div className="view-header-right">
-          <button className="categories-settings-btn btn-primary" onClick={openSettings}>
-            ⚙️ Settings
-          </button>
-        </div>
       </div>
 
       <div className="categories-layout-grid">

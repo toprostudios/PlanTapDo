@@ -1,8 +1,8 @@
 // src/components/calendar/CalendarDayGrid.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { useTodoStore } from '../../store/todoStore';
-import type { TodoEntry } from '../../types';
 import { addDays, parseISO, format, startOfWeek } from 'date-fns';
+
 import './CalendarDayGrid.css';
 
 interface CalendarDayGridProps {
@@ -152,49 +152,121 @@ export const CalendarDayGrid: React.FC<CalendarDayGridProps> = ({ dateIso }) => 
   };
 
   /**
-   * Auto-push & Time Compression algorithm per task
+   * Comprehensive Sequential Pushing & Expansion Layout Algorithm per Day Column
+   *
+   * Rule A (No task started):
+   * When current time advances past scheduled start time and no task is started,
+   * unstarted tasks are pushed downwards continuously by current time indicator bar.
+   *
+   * Rule B (Task started & uncompleted):
+   * When a task is running / in-progress and exceeds planned time block without being marked completed,
+   * its block expands downwards in real time, pushing all subsequent tasks downwards.
    */
-  const getPushedMetrics = (todo: TodoEntry, targetDateIso: string) => {
-    const [h, m] = (todo.plannedStartTime || '09:00').split(':').map(Number);
-    const plannedStartHour = Math.max(7, Math.min(22, h));
-    const plannedStartPx = (plannedStartHour - 7) * 64 + (m / 60) * 64;
-    const plannedDurationPx = (todo.plannedDuration / 60) * 64;
-    const plannedEndPx = plannedStartPx + plannedDurationPx;
+  const computeDayTimelineLayouts = (colDateIso: string) => {
+    const dayTodos = todos.filter((t) => t.doDate === colDateIso);
+    const isTargetToday = colDateIso === todayIso;
 
-    const isTargetToday = targetDateIso === todayIso;
-    const isUnstarted = todo.status === 'todo';
-    const isRunning = todo.status === 'in-progress';
-    const isCompleted = todo.status === 'done';
+    // Sort tasks chronologically by plannedStartTime
+    const sorted = [...dayTodos].sort((a, b) => {
+      const timeA = a.plannedStartTime || '09:00';
+      const timeB = b.plannedStartTime || '09:00';
+      return timeA.localeCompare(timeB);
+    });
 
-    let topPx = plannedStartPx;
-    let heightPx = Math.max(48, plannedDurationPx);
-    let isPushed = false;
-    let compressedMinutes = todo.plannedDuration;
-
-    if (isTargetToday && isUnstarted && currentTimePx > plannedStartPx) {
-      isPushed = true;
-      topPx = Math.min(currentTimePx, plannedEndPx - 15);
-      const remainingPx = Math.max(20, plannedEndPx - topPx);
-      heightPx = remainingPx;
-      compressedMinutes = Math.max(5, Math.round((remainingPx / 64) * 60));
-    } else if (isRunning) {
-      const runningSession = todo.sessions.find((s) => !s.stoppedAt);
-      if (runningSession) {
-        const elapsedMin = Math.max(0, (now.getTime() - new Date(runningSession.startedAt).getTime()) / 60000);
-        compressedMinutes = Math.max(todo.plannedDuration, Math.round(elapsedMin));
-        heightPx = Math.max(plannedDurationPx, (compressedMinutes / 60) * 64);
+    const layouts: Record<
+      string,
+      {
+        topPx: number;
+        heightPx: number;
+        isPushed: boolean;
+        isExtended: boolean;
+        effectiveDurationMinutes: number;
+        effectiveStartTimeStr: string;
+        isCompleted: boolean;
+        isRunning: boolean;
       }
-    }
+    > = {};
 
-    return {
-      top: `${topPx}px`,
-      height: `${heightPx}px`,
-      isPushed,
-      compressedMinutes,
-      isCompleted,
-      isRunning,
-    };
+    let currentChainEndPx = 0;
+
+    sorted.forEach((todo) => {
+      const [h, m] = (todo.plannedStartTime || '09:00').split(':').map(Number);
+      const plannedStartHour = Math.max(7, Math.min(22, h));
+      const scheduledStartPx = (plannedStartHour - 7) * 64 + (m / 60) * 64;
+      const plannedDurationPx = (todo.plannedDuration / 60) * 64;
+
+      const isCompleted = todo.status === 'done';
+      const isRunning = (todo.sessions || []).some((s) => !s.stoppedAt);
+
+      let effectiveTopPx = scheduledStartPx;
+      let effectiveHeightPx = Math.max(44, plannedDurationPx);
+      let isPushed = false;
+      let isExtended = false;
+
+      if (isTargetToday) {
+        if (isCompleted) {
+          effectiveTopPx = scheduledStartPx;
+          effectiveHeightPx = plannedDurationPx;
+        } else if (isRunning) {
+          const runningSession = todo.sessions.find((s) => !s.stoppedAt);
+          effectiveTopPx = Math.max(scheduledStartPx, currentChainEndPx);
+          if (runningSession) {
+            const elapsedMinutes = Math.max(
+              0,
+              Math.floor((now.getTime() - new Date(runningSession.startedAt).getTime()) / 60000)
+            );
+            const activeDurationMinutes = Math.max(todo.plannedDuration, Math.round(elapsedMinutes));
+            effectiveHeightPx = (activeDurationMinutes / 60) * 64;
+            if (activeDurationMinutes > todo.plannedDuration) {
+              isExtended = true;
+            }
+          }
+        } else {
+          // Unstarted or paused task
+          if (isCurrentTimeInHours && currentTimePx > scheduledStartPx) {
+            effectiveTopPx = Math.max(scheduledStartPx, currentTimePx, currentChainEndPx);
+            isPushed = true;
+          } else if (scheduledStartPx < currentChainEndPx) {
+            effectiveTopPx = currentChainEndPx;
+            isPushed = true;
+          }
+          effectiveHeightPx = plannedDurationPx;
+        }
+      } else {
+        effectiveTopPx = Math.max(scheduledStartPx, currentChainEndPx);
+        effectiveHeightPx = plannedDurationPx;
+        if (effectiveTopPx > scheduledStartPx) {
+          isPushed = true;
+        }
+      }
+
+      const effectiveEndPx = effectiveTopPx + effectiveHeightPx;
+      currentChainEndPx = effectiveEndPx + 4;
+
+      const startMinFrom7 = Math.round((effectiveTopPx / 64) * 60);
+      const displayHour = Math.floor(startMinFrom7 / 60) + 7;
+      const displayMin = startMinFrom7 % 60;
+      const formattedHour = Math.max(1, displayHour > 12 ? displayHour - 12 : displayHour);
+      const ampm = displayHour >= 12 ? 'PM' : 'AM';
+      const effectiveStartTimeStr = `${formattedHour}:${String(displayMin).padStart(2, '0')} ${ampm}`;
+
+      const effectiveDurationMinutes = Math.round((effectiveHeightPx / 64) * 60);
+
+      layouts[todo.id] = {
+        topPx: effectiveTopPx,
+        heightPx: effectiveHeightPx,
+        isPushed,
+        isExtended,
+        effectiveDurationMinutes,
+        effectiveStartTimeStr,
+        isCompleted,
+        isRunning,
+      };
+    });
+
+    return layouts;
   };
+
 
   // Drag and Drop handlers
   const handleDragStart = (e: React.DragEvent, id: string) => {
@@ -347,103 +419,120 @@ export const CalendarDayGrid: React.FC<CalendarDayGridProps> = ({ dateIso }) => 
                   </div>
                 ))}
 
-                {/* Render Todo Cards for this Day Column */}
-                {dayTodos.map((todo) => {
-                  const cat = getCategory(todo.categoryId);
-                  const metrics = getPushedMetrics(todo, colDateIso);
-                  const layout = overlapLayouts[todo.id] || { colIndex: 0, totalCols: 1 };
+                {/* Render Todo Cards for this Day Column with Dynamic Current Time Pushing & Duration Expansion */}
+                {(() => {
+                  const timelineLayouts = computeDayTimelineLayouts(colDateIso);
+                  return dayTodos.map((todo) => {
+                    const cat = getCategory(todo.categoryId);
+                    const metrics = timelineLayouts[todo.id] || {
+                      topPx: 0,
+                      heightPx: 48,
+                      isPushed: false,
+                      isExtended: false,
+                      effectiveDurationMinutes: todo.plannedDuration,
+                      effectiveStartTimeStr: todo.plannedStartTime || '09:00',
+                      isCompleted: todo.status === 'done',
+                      isRunning: (todo.sessions || []).some((s) => !s.stoppedAt),
+                    };
+                    const layout = overlapLayouts[todo.id] || { colIndex: 0, totalCols: 1 };
 
-                  const colWidth = 100 / layout.totalCols;
-                  const leftPct = layout.colIndex * colWidth;
-                  const priorityLabel = getPriorityEmoji(todo.priority);
+                    const colWidth = 100 / layout.totalCols;
+                    const leftPct = layout.colIndex * colWidth;
+                    const priorityLabel = getPriorityEmoji(todo.priority);
 
-                  return (
-                    <div
-                      key={todo.id}
-                      draggable
-                      onDragStart={(e) => handleDragStart(e, todo.id)}
-                      className={`calendar-todo-block ${metrics.isCompleted ? 'completed' : ''} ${metrics.isRunning ? 'running' : ''} ${metrics.isPushed ? 'pushed' : ''} ${draggingTodoId === todo.id ? 'is-dragging' : ''}`}
-                      style={{
-                        top: metrics.top,
-                        height: metrics.height,
-                        left: `calc(${leftPct}% + 6px)`,
-                        width: `calc(${colWidth}% - 12px)`,
-                        borderLeftColor: cat?.color || 'var(--accent-primary)',
-                      }}
-                    >
-                      <div className="todo-block-header">
-                        <div className="title-area">
-                          <span className="drag-handle" title="Drag to adjust time or day">⋮⋮</span>
-                          {cat && <span className="cat-icon">{cat.icon}</span>}
-                          <span className="todo-title-text">{todo.title}</span>
-                        </div>
+                    return (
+                      <div
+                        key={todo.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, todo.id)}
+                        className={`calendar-todo-block ${metrics.isCompleted ? 'completed' : ''} ${metrics.isRunning ? 'running' : ''} ${metrics.isPushed ? 'pushed' : ''} ${metrics.isExtended ? 'extended' : ''} ${draggingTodoId === todo.id ? 'is-dragging' : ''}`}
+                        style={{
+                          top: `${metrics.topPx}px`,
+                          height: `${metrics.heightPx}px`,
+                          left: `calc(${leftPct}% + 6px)`,
+                          width: `calc(${colWidth}% - 12px)`,
+                          borderLeftColor: cat?.color || 'var(--accent-primary)',
+                        }}
+                      >
+                        <div className="todo-block-header">
+                          <div className="title-area">
+                            <span className="drag-handle" title="Drag to adjust time or day">⋮⋮</span>
+                            {cat && <span className="cat-icon">{cat.icon}</span>}
+                            <span className="todo-title-text">{todo.title}</span>
+                          </div>
 
-                        {/* Start / Stop Button directly on card */}
-                        <div className="actions-area">
-                          {!metrics.isCompleted ? (
-                            metrics.isRunning ? (
-                              <button
-                                className="timer-action-btn stop"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  stopTimer(todo.id);
-                                }}
-                                title="Stop Timer"
-                              >
-                                ⏹️ Stop
-                              </button>
+                          {/* Start / Stop Button directly on card */}
+                          <div className="actions-area">
+                            {!metrics.isCompleted ? (
+                              metrics.isRunning ? (
+                                <button
+                                  className="timer-action-btn stop"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    stopTimer(todo.id);
+                                  }}
+                                  title="Pause Timer"
+                                >
+                                  ⏸️ Pause
+                                </button>
+                              ) : (
+                                <button
+                                  className="timer-action-btn start"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startTimer(todo.id);
+                                  }}
+                                  title="Start / Resume Timer"
+                                >
+                                  ▶️ Start
+                                </button>
+                              )
                             ) : (
-                              <button
-                                className="timer-action-btn start"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  startTimer(todo.id);
-                                }}
-                                title="Start Timer"
-                              >
-                                ▶️ Start
-                              </button>
-                            )
-                          ) : (
-                            <span className="completed-badge">✅ Done</span>
-                          )}
+                              <span className="completed-badge">✅ Done</span>
+                            )}
+                          </div>
                         </div>
-                      </div>
 
-                      {/* Card Details & Metadata */}
-                      <div className="todo-block-meta">
-                        <span className="meta-time">
-                          ⏰ {todo.plannedStartTime || '09:00'}{' '}
-                          {metrics.isPushed ? (
-                            <strong className="pushed-warning">
-                              (Pushed & compressed to {metrics.compressedMinutes}m)
-                            </strong>
-                          ) : (
-                            `(${metrics.compressedMinutes} min)`
-                          )}
-                        </span>
-
-                        {priorityLabel && <span className="priority-pill">{priorityLabel}</span>}
-                        {todo.location && <span className="location-pill">📍 {todo.location}</span>}
-                        {todo.descriptiveDeadline && (
-                          <span className="deadline-descriptive-pill" title="Descriptive deadline (no effect on calendar view)">
-                            📝 {todo.descriptiveDeadline}
+                        {/* Card Details & Metadata */}
+                        <div className="todo-block-meta">
+                          <span className="meta-time">
+                            ⏰ {metrics.effectiveStartTimeStr}{' '}
+                            {metrics.isPushed ? (
+                              <strong className="pushed-warning">
+                                (Pushed by current time ➔ {metrics.effectiveDurationMinutes}m)
+                              </strong>
+                            ) : metrics.isExtended ? (
+                              <strong className="extended-warning" style={{ color: 'var(--color-success, #10b981)' }}>
+                                (Running extended ➔ {metrics.effectiveDurationMinutes}m)
+                              </strong>
+                            ) : (
+                              `(${metrics.effectiveDurationMinutes} min)`
+                            )}
                           </span>
-                        )}
-                        {todo.reminder && <span className="reminder-pill">🔔 {todo.reminder}</span>}
-                      </div>
 
-                      {/* Labels / Tags */}
-                      {todo.labels && todo.labels.length > 0 && (
-                        <div className="todo-labels-row">
-                          {todo.labels.map((lbl) => (
-                            <span key={lbl} className="label-tag">#{lbl}</span>
-                          ))}
+                          {priorityLabel && <span className="priority-pill">{priorityLabel}</span>}
+                          {todo.location && <span className="location-pill">📍 {todo.location}</span>}
+                          {todo.descriptiveDeadline && (
+                            <span className="deadline-descriptive-pill" title="Descriptive deadline (no effect on calendar view)">
+                              📝 {todo.descriptiveDeadline}
+                            </span>
+                          )}
+                          {todo.reminder && <span className="reminder-pill">🔔 {todo.reminder}</span>}
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
+
+                        {/* Labels / Tags */}
+                        {todo.labels && todo.labels.length > 0 && (
+                          <div className="todo-labels-row">
+                            {todo.labels.map((lbl) => (
+                              <span key={lbl} className="label-tag">#{lbl}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  });
+                })()}
+
               </div>
             );
           })}

@@ -52,17 +52,27 @@ TEMPLATES = [
 WSGI_APPLICATION = 'timetodo_api.wsgi.application'
 ASGI_APPLICATION = 'timetodo_api.asgi.application'
 
-# Database – placeholder for PostgreSQL
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql_psycopg2',
-        'NAME': os.getenv('POSTGRES_DB', 'timetodo'),
-        'USER': os.getenv('POSTGRES_USER', 'timetodo'),
-        'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'password'),
-        'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
-        'PORT': os.getenv('POSTGRES_PORT', '5432'),
+AUTH_USER_MODEL = 'timetodo_api.User'
+
+# Database configuration with sqlite3 fallback for local testing
+if os.getenv('POSTGRES_DB'):
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': os.getenv('POSTGRES_DB', 'timetodo'),
+            'USER': os.getenv('POSTGRES_USER', 'timetodo'),
+            'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'password'),
+            'HOST': os.getenv('POSTGRES_HOST', 'localhost'),
+            'PORT': os.getenv('POSTGRES_PORT', '5432'),
+        }
     }
-}
+else:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 # Password validation
 AUTH_PASSWORD_VALIDATORS = []
@@ -91,25 +101,34 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
+from datetime import timedelta
+
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': 60 * 60 * 24,  # 1 day (seconds)
-    'REFRESH_TOKEN_LIFETIME': 60 * 60 * 24 * 7,  # 1 week (seconds)
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
 }
+
 
 # CORS configuration
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:5173',
-]
+CORS_ALLOW_ALL_ORIGINS = True
 
-# Channels (Redis) configuration
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {
-            'hosts': [(os.getenv('REDIS_HOST', 'localhost'), 6379)],
+# Channels configuration with in-memory fallback
+if os.getenv('REDIS_HOST'):
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [(os.getenv('REDIS_HOST', 'localhost'), 6379)],
+            },
         },
-    },
-}
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
+
 
 # drf-spectacular settings
 SPECTACULAR_SETTINGS = {

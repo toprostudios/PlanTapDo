@@ -153,3 +153,7 @@ struct AccountView: View {
         }
     }
 }
+
+#Preview("User Account View") {
+    AccountView(viewModel: TodoViewModel())
+}

@@ -1,8 +1,8 @@
-// TimeToDoApp.swift
+// PlanTapDo.swift
 import SwiftUI
 
 @main
-struct TimeToDoApp: App {
+struct PlanTapDoApp: App {
     // Entry point for the SwiftUI app
     var body: some Scene {
         WindowGroup {

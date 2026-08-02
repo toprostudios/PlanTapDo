@@ -17,8 +17,16 @@ packages/web/dist
 
 # iOS & Swift build cache
 ios/cache
+scratch/
 *.xcodeproj/project.xcworkspace
 *.xcodeproj/xcuserdata
+**/*.xcodeproj/project.xcworkspace/xcuserdata/
+**/*.xcodeproj/xcuserdata/
+
+# Python & local database artifacts
+__pycache__/
+*.py[cod]
+*.sqlite3
 
 # OS & Editor
 .DS_Store

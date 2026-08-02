@@ -1,7 +1,6 @@
 // src/components/views/FutureView.tsx
 import React, { useState } from 'react';
 import { useTodoStore } from '../../store/todoStore';
-import { useUIStore } from '../../store/uiStore';
 import { TodoCard } from '../todo/TodoCard';
 import { CalendarDayGrid } from '../calendar/CalendarDayGrid';
 import { KanbanBoardView } from './KanbanBoardView';
@@ -13,7 +12,6 @@ export type ViewMode = 'list' | 'calendar' | 'kanban';
 
 export const FutureView: React.FC = () => {
   const todos = useTodoStore((state) => state.todos);
-  const openSettings = useUIStore((state) => state.openSettings);
 
   const tomorrowIso = format(addDays(new Date(), 1), 'yyyy-MM-dd');
   const [selectedDateIso, setSelectedDateIso] = useState<string>(tomorrowIso);
@@ -54,7 +52,7 @@ export const FutureView: React.FC = () => {
               onClick={() => setViewMode('list')}
               title="List View"
             >
-              📝 List View
+              📝 List
             </button>
             <button
               className={`view-toggle-btn ${viewMode === 'calendar' ? 'active' : ''}`}
@@ -66,15 +64,11 @@ export const FutureView: React.FC = () => {
             <button
               className={`view-toggle-btn ${viewMode === 'kanban' ? 'active' : ''}`}
               onClick={() => setViewMode('kanban')}
-              title="Kanban Board View"
+              title="Kanban View"
             >
-              📋 Kanban Board
+              📋 Kanban
             </button>
           </div>
-
-          <button className="view-settings-btn btn-primary" onClick={openSettings} title="Open Settings">
-            ⚙️ Settings
-          </button>
         </div>
       </div>
 
