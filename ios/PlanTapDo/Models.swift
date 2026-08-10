@@ -12,15 +12,6 @@ struct UserAccount: Identifiable, Codable, Hashable {
     var isCloudSynced: Bool
 }
 
-struct TeamMember: Identifiable, Codable, Hashable {
-    let id: UUID
-    var name: String
-    var role: String
-    var department: String
-    var status: String
-    var capacityMinutes: Int
-}
-
 struct Category: Identifiable, Codable, Hashable {
     let id: UUID
     var name: String
@@ -37,16 +28,45 @@ struct TimeSession: Identifiable, Codable, Hashable {
 }
 
 struct Subtask: Identifiable, Codable, Hashable {
-    let id: UUID
+    let id: String
     var title: String
     var isCompleted: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case completed
+        case isCompleted
+    }
+
+    init(id: String, title: String, isCompleted: Bool) {
+        self.id = id
+        self.title = title
+        self.isCompleted = isCompleted
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        isCompleted = try container.decodeIfPresent(Bool.self, forKey: .completed)
+            ?? container.decodeIfPresent(Bool.self, forKey: .isCompleted)
+            ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(isCompleted, forKey: .completed)
+    }
 }
 
 enum PriorityLevel: String, Codable, CaseIterable, Identifiable {
-    case low = "Low"
-    case medium = "Medium"
-    case high = "High"
-    case urgent = "Urgent"
+    case low
+    case medium
+    case high
+    case urgent
 
     var id: String { rawValue }
 
@@ -64,7 +84,8 @@ enum TodoStatus: String, Codable {
     case pending
     case inProgress = "in_progress"
     case completed
-    case cancelled
+    case archived
+    case skipped
 }
 
 struct TodoEntry: Identifiable, Codable, Hashable {
@@ -85,7 +106,139 @@ struct TodoEntry: Identifiable, Codable, Hashable {
     var labels: [String]?
     var timeSessions: [TimeSession]?
     var subtasks: [Subtask]?
-    var assigneeId: UUID?
+    var assigneeId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case description
+        case doDate
+        case dueDate
+        case dueTime
+        case descriptiveDeadline
+        case plannedStartTime
+        case plannedDuration
+        case categoryId
+        case status
+        case priority
+        case location
+        case reminder
+        case labels
+        case subtasks
+        case assigneeId
+    }
+
+    init(
+        id: UUID,
+        title: String,
+        description: String?,
+        doDate: Date,
+        dueDate: Date?,
+        dueTime: String?,
+        descriptiveDeadline: String?,
+        plannedStartTime: String?,
+        plannedDuration: TimeInterval,
+        categoryId: UUID?,
+        status: TodoStatus,
+        priority: PriorityLevel?,
+        location: String?,
+        reminder: String?,
+        labels: [String]?,
+        timeSessions: [TimeSession]?,
+        subtasks: [Subtask]?,
+        assigneeId: String?
+    ) {
+        self.id = id
+        self.title = title
+        self.description = description
+        self.doDate = doDate
+        self.dueDate = dueDate
+        self.dueTime = dueTime
+        self.descriptiveDeadline = descriptiveDeadline
+        self.plannedStartTime = plannedStartTime
+        self.plannedDuration = plannedDuration
+        self.categoryId = categoryId
+        self.status = status
+        self.priority = priority
+        self.location = location
+        self.reminder = reminder
+        self.labels = labels
+        self.timeSessions = timeSessions
+        self.subtasks = subtasks
+        self.assigneeId = assigneeId
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        title = try container.decode(String.self, forKey: .title)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        doDate = Self.decodeDate(from: container, forKey: .doDate)
+            ?? Calendar.current.startOfDay(for: Date())
+        dueDate = Self.decodeDate(from: container, forKey: .dueDate)
+        dueTime = try container.decodeIfPresent(String.self, forKey: .dueTime)
+        descriptiveDeadline = try container.decodeIfPresent(String.self, forKey: .descriptiveDeadline)
+        plannedStartTime = try container.decodeIfPresent(String.self, forKey: .plannedStartTime)
+
+        let durationMinutes = try container.decodeIfPresent(Double.self, forKey: .plannedDuration) ?? 30
+        plannedDuration = durationMinutes * 60
+
+        categoryId = try container.decodeIfPresent(UUID.self, forKey: .categoryId)
+        status = try container.decodeIfPresent(TodoStatus.self, forKey: .status) ?? .pending
+        priority = try container.decodeIfPresent(PriorityLevel.self, forKey: .priority)
+        location = try container.decodeIfPresent(String.self, forKey: .location)
+        reminder = try container.decodeIfPresent(String.self, forKey: .reminder)
+        labels = try container.decodeIfPresent([String].self, forKey: .labels)
+        timeSessions = nil
+        subtasks = try container.decodeIfPresent([Subtask].self, forKey: .subtasks)
+        assigneeId = try container.decodeIfPresent(String.self, forKey: .assigneeId)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(title, forKey: .title)
+        try container.encode(description, forKey: .description)
+        try container.encode(Self.apiDateFormatter.string(from: doDate), forKey: .doDate)
+        if let dueDate {
+            try container.encode(Self.apiDateFormatter.string(from: dueDate), forKey: .dueDate)
+        } else {
+            try container.encodeNil(forKey: .dueDate)
+        }
+        try container.encode(dueTime, forKey: .dueTime)
+        try container.encode(descriptiveDeadline, forKey: .descriptiveDeadline)
+        try container.encode(plannedStartTime, forKey: .plannedStartTime)
+        try container.encode(max(0, Int((plannedDuration / 60).rounded())), forKey: .plannedDuration)
+        try container.encode(categoryId, forKey: .categoryId)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(priority, forKey: .priority)
+        try container.encode(location, forKey: .location)
+        try container.encode(reminder, forKey: .reminder)
+        try container.encodeIfPresent(labels, forKey: .labels)
+        try container.encodeIfPresent(subtasks, forKey: .subtasks)
+        try container.encode(assigneeId, forKey: .assigneeId)
+    }
+
+    private static let apiDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
+    private static let apiDateTimeFormatter = ISO8601DateFormatter()
+
+    private static func decodeDate(
+        from container: KeyedDecodingContainer<CodingKeys>,
+        forKey key: CodingKeys
+    ) -> Date? {
+        guard let value = try? container.decode(String.self, forKey: key) else {
+            return nil
+        }
+        return apiDateFormatter.date(from: value) ?? apiDateTimeFormatter.date(from: value)
+    }
 }
 
 enum AppTheme: String, CaseIterable, Identifiable {

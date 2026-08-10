@@ -1,38 +1,44 @@
 import json
+
 from channels.generic.websocket import AsyncWebsocketConsumer
 
+
 class TodoConsumer(AsyncWebsocketConsumer):
-    """WebSocket consumer for real-time state sync updates per user.
-    Clients connect to `ws://<host>/ws/todos/?user_id=<user_id>` or receive broadcasts.
-    """
+    """Authenticated real-time updates scoped to the connected account."""
 
     async def connect(self):
-        query_string = self.scope.get("query_string", b"").decode("utf-8")
-        user_id = "default"
-        if "user_id=" in query_string:
-            user_id = query_string.split("user_id=")[-1].split("&")[0]
+        user = self.scope.get("user")
+        if user is None or not user.is_authenticated:
+            await self.close(code=4401)
+            return
 
-        self.group_name = f"user_{user_id}"
+        self.group_name = f"user_{user.id}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        group_name = getattr(self, "group_name", None)
+        if group_name:
+            await self.channel_layer.group_discard(group_name, self.channel_name)
 
     async def receive(self, text_data=None, bytes_data=None):
-        if text_data:
-            try:
-                data = json.loads(text_data)
-                await self.channel_layer.group_send(
-                    self.group_name,
-                    {
-                        "type": "sync_event",
-                        "event_type": data.get("type", "custom_event"),
-                        "data": data.get("data", {}),
-                    },
-                )
-            except Exception:
-                pass
+        if not text_data:
+            return
+
+        try:
+            data = json.loads(text_data)
+        except (TypeError, json.JSONDecodeError):
+            await self.close(code=4400)
+            return
+
+        await self.channel_layer.group_send(
+            self.group_name,
+            {
+                "type": "sync_event",
+                "event_type": data.get("type", "custom_event"),
+                "data": data.get("data", {}),
+            },
+        )
 
     async def sync_event(self, event):
         await self.send(
@@ -43,7 +49,3 @@ class TodoConsumer(AsyncWebsocketConsumer):
                 }
             )
         )
-
-    async def todo_message(self, event):
-        await self.send(text_data=event["message"])
-

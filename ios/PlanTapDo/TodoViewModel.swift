@@ -6,13 +6,11 @@ import SwiftUI
 enum DisplayStyle: String, CaseIterable {
     case list = "List"
     case calendar = "Calendar"
-    case kanban = "Kanban"
 }
 
 class TodoViewModel: ObservableObject {
     @Published var userAccount: UserAccount
     @Published var availableAccounts: [UserAccount] = []
-    @Published var teamMembers: [TeamMember] = []
     @Published var todos: [TodoEntry] = []
     @Published var categories: [Category] = []
     @Published var locationTravelTimes: [String: Int] = [:]
@@ -20,13 +18,11 @@ class TodoViewModel: ObservableObject {
     @Published var errorMessage: String? = nil
 
     // UI State
-    @Published var selectedTab: Int = 0 // 0: Today, 1: Future, 2: Categories, 3: Team
+    @Published var selectedTab: Int = 0 // 0: Today, 1: Future, 2: Categories, 3: Settings
     @Published var displayStyle: DisplayStyle = .list
     @Published var selectedFutureDate: Date = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
     @Published var currentWeekOffset: Int = 0
     @Published var theme: AppTheme = .dark
-    @Published var showingSettings: Bool = false
-    @Published var showingAccountModal: Bool = false
 
     // MARK: - Timer State
     @Published var activeTimerTodoId: UUID? = nil
@@ -44,6 +40,7 @@ class TodoViewModel: ObservableObject {
         activeTimerTodoId = todo.id
         if let idx = todos.firstIndex(where: { $0.id == todo.id }) {
             todos[idx].status = .inProgress
+            persistTodo(todos[idx])
         }
         timerSecondsElapsed = 0
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
@@ -55,9 +52,13 @@ class TodoViewModel: ObservableObject {
 
     func stopTimer() {
         if let activeId = activeTimerTodoId, let idx = todos.firstIndex(where: { $0.id == activeId }) {
-            // Paused - remains inProgress
             todos[idx].status = .inProgress
+            persistTodo(todos[idx])
         }
+        clearTimerState()
+    }
+
+    private func clearTimerState() {
         timer?.invalidate()
         timer = nil
         activeTimerTodoId = nil
@@ -67,21 +68,19 @@ class TodoViewModel: ObservableObject {
 
     private var cancellables = Set<AnyCancellable>()
     private let api = APIClient.shared
+    private var accountTokens: [UUID: String] = [:]
 
     init() {
-        let acc1 = UserAccount(id: UUID(), name: "Tony Pro Workspace", email: "tony@plantapdo.app", tier: "Pro", isCloudSynced: true)
-        let acc2 = UserAccount(id: UUID(), name: "Personal Account", email: "tony.personal@plantapdo.app", tier: "Free", isCloudSynced: true)
-        let acc3 = UserAccount(id: UUID(), name: "Product Team Workspace", email: "team@plantapdo.app", tier: "Enterprise", isCloudSynced: true)
+        let personalAccount = UserAccount(
+            id: UUID(),
+            name: "Personal Account",
+            email: "personal@plantapdo.app",
+            tier: "Demo",
+            isCloudSynced: false
+        )
 
-        self.userAccount = acc1
-        self.availableAccounts = [acc1, acc2, acc3]
-
-        let tm1 = TeamMember(id: UUID(), name: "Alex Vance", role: "Lead UI/UX Designer 🎨", department: "Design", status: "active", capacityMinutes: 360)
-        let tm2 = TeamMember(id: UUID(), name: "Sarah Chen", role: "Senior Frontend Architect 💻", department: "Engineering", status: "active", capacityMinutes: 480)
-        let tm3 = TeamMember(id: UUID(), name: "Marcus Brody", role: "Group Product Manager 📊", department: "Product", status: "active", capacityMinutes: 300)
-        let tm4 = TeamMember(id: UUID(), name: "Elena Rostova", role: "DevOps Lead ⚙️", department: "Infrastructure", status: "break", capacityMinutes: 240)
-
-        self.teamMembers = [tm1, tm2, tm3, tm4]
+        self.userAccount = personalAccount
+        self.availableAccounts = [personalAccount]
 
         loadSampleData()
     }
@@ -104,22 +103,54 @@ class TodoViewModel: ObservableObject {
     }
 
     func switchAccount(_ account: UserAccount) {
-        self.userAccount = account
+        clearTimerState()
+        userAccount = account
+        if let token = accountTokens[account.id] {
+            api.setAuthToken(token)
+            fetchTodos()
+        } else {
+            api.clearAuthToken()
+            loadSampleData()
+        }
     }
 
-    func createAndSwitchAccount(name: String, email: String) {
-        guard !name.isEmpty && !email.isEmpty else { return }
-        let newAcc = UserAccount(id: UUID(), name: name, email: email, tier: "Pro", isCloudSynced: true)
-        availableAccounts.append(newAcc)
-        userAccount = newAcc
+    func registerAndSwitchAccount(username: String, email: String, password: String) {
+        guard !username.isEmpty && !email.isEmpty && !password.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+
+        api.registerAccount(username: username, email: email, password: password)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] response in
+                guard let self else { return }
+                self.api.setAuthToken(response.tokens.access)
+                let account = UserAccount(
+                    id: response.id,
+                    name: response.username,
+                    email: response.email,
+                    tier: "Cloud",
+                    isCloudSynced: true
+                )
+                self.availableAccounts.removeAll { $0.id == account.id }
+                self.availableAccounts.append(account)
+                self.accountTokens[account.id] = response.tokens.access
+                self.userAccount = account
+                self.fetchTodos()
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Sample Data Setup
     func loadSampleData() {
-        let catWork = Category(id: UUID(), name: "Work & Projects", colorHex: "7C6FF7", icon: "💼", notes: "# 💼 Work & Projects Notion Canvas\n\n- [ ] Review sprint specs\n- [ ] Ship Kanban views")
-        let catPersonal = Category(id: UUID(), name: "Personal & Life", colorHex: "3ECF8E", icon: "🏡", notes: "# 🏡 Personal & Life Document\n\n- [ ] Buy groceries\n- [ ] Family call")
-        let catHealth = Category(id: UUID(), name: "Health & Fitness", colorHex: "F5A623", icon: "🏋️", notes: "# 🏋️ Health Log\n\n- Workout schedule")
-        let catLearning = Category(id: UUID(), name: "Learning & Skills", colorHex: "60A5FA", icon: "📚", notes: "# 📚 Learning Notebook\n\n- Read Clean Architecture")
+        let catWork = Category(id: UUID(), name: "Work & Projects", colorHex: "7C6FF7", icon: "💼")
+        let catPersonal = Category(id: UUID(), name: "Personal & Life", colorHex: "3ECF8E", icon: "🏡")
+        let catHealth = Category(id: UUID(), name: "Health & Fitness", colorHex: "F5A623", icon: "🏋️")
+        let catLearning = Category(id: UUID(), name: "Learning & Skills", colorHex: "60A5FA", icon: "📚")
 
         self.categories = [catWork, catPersonal, catHealth, catLearning]
 
@@ -156,11 +187,11 @@ class TodoViewModel: ObservableObject {
                 labels: ["product", "roadmap"],
                 timeSessions: nil,
                 subtasks: [
-                    Subtask(id: UUID(), title: "Check sprint backlog estimates", isCompleted: true),
-                    Subtask(id: UUID(), title: "Verify design mockup deliverables", isCompleted: false),
-                    Subtask(id: UUID(), title: "Draft release timeline email", isCompleted: false)
+                    Subtask(id: UUID().uuidString, title: "Check sprint backlog estimates", isCompleted: true),
+                    Subtask(id: UUID().uuidString, title: "Verify design mockup deliverables", isCompleted: false),
+                    Subtask(id: UUID().uuidString, title: "Draft release timeline email", isCompleted: false)
                 ],
-                assigneeId: teamMembers.first?.id
+                assigneeId: nil
             ),
             TodoEntry(
                 id: UUID(),
@@ -180,10 +211,10 @@ class TodoViewModel: ObservableObject {
                 labels: ["health", "fitness"],
                 timeSessions: nil,
                 subtasks: [
-                    Subtask(id: UUID(), title: "Stretching & warm up", isCompleted: true),
-                    Subtask(id: UUID(), title: "30m strength workout", isCompleted: true)
+                    Subtask(id: UUID().uuidString, title: "Stretching & warm up", isCompleted: true),
+                    Subtask(id: UUID().uuidString, title: "30m strength workout", isCompleted: true)
                 ],
-                assigneeId: teamMembers.first?.id
+                assigneeId: nil
             ),
             TodoEntry(
                 id: UUID(),
@@ -203,10 +234,10 @@ class TodoViewModel: ObservableObject {
                 labels: ["ui-ux", "design"],
                 timeSessions: nil,
                 subtasks: [
-                    Subtask(id: UUID(), title: "Audit high-contrast tokens", isCompleted: false),
-                    Subtask(id: UUID(), title: "Test 3-day and weekly view modes", isCompleted: false)
+                    Subtask(id: UUID().uuidString, title: "Audit high-contrast tokens", isCompleted: false),
+                    Subtask(id: UUID().uuidString, title: "Test 3-day and weekly view modes", isCompleted: false)
                 ],
-                assigneeId: teamMembers.count > 1 ? teamMembers[1].id : nil
+                assigneeId: nil
             ),
             TodoEntry(
                 id: UUID(),
@@ -226,7 +257,7 @@ class TodoViewModel: ObservableObject {
                 labels: ["reading", "learning"],
                 timeSessions: nil,
                 subtasks: [],
-                assigneeId: teamMembers.count > 1 ? teamMembers[1].id : nil
+                assigneeId: nil
             ),
             TodoEntry(
                 id: UUID(),
@@ -246,16 +277,16 @@ class TodoViewModel: ObservableObject {
                 labels: ["groceries", "errands"],
                 timeSessions: nil,
                 subtasks: [],
-                assigneeId: teamMembers.first?.id
+                assigneeId: nil
             ),
             TodoEntry(
                 id: UUID(),
-                title: "Sprint Retrospective & Team Sync",
-                description: "Discuss wins, blockers, and process improvements for next sprint.",
+                title: "Weekly Review & Next Steps",
+                description: "Review completed work, blockers, and priorities for next week.",
                 doDate: nextWeek,
                 dueDate: nextWeek,
                 dueTime: "15:00",
-                descriptiveDeadline: "Before sprint end",
+                descriptiveDeadline: "Before the week ends",
                 plannedStartTime: "14:00",
                 plannedDuration: 3600,
                 categoryId: catWork.id,
@@ -263,28 +294,29 @@ class TodoViewModel: ObservableObject {
                 priority: .high,
                 location: "HQ Office (3rd Floor)",
                 reminder: "15 minutes before",
-                labels: ["sprint", "retro"],
+                labels: ["review", "planning"],
                 timeSessions: nil,
                 subtasks: [],
-                assigneeId: teamMembers.count > 3 ? teamMembers[3].id : nil
+                assigneeId: nil
             )
         ]
     }
 
     // MARK: - Fetch
     func fetchTodos() {
+        guard api.isAuthenticated else { return }
         isLoading = true
-        api.fetchTodos()
+        errorMessage = nil
+        api.fetchSyncState()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] completion in
                 self?.isLoading = false
-                if case .failure = completion {
-                    // Retain local sample data on failure
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
                 }
-            } receiveValue: { [weak self] fetched in
-                if !fetched.isEmpty {
-                    self?.todos = fetched
-                }
+            } receiveValue: { [weak self] state in
+                self?.todos = state.todos
+                self?.categories = state.categories
             }
             .store(in: &cancellables)
     }
@@ -296,7 +328,7 @@ class TodoViewModel: ObservableObject {
         dueDate: Date? = nil,
         dueTime: String? = nil,
         descriptiveDeadline: String? = nil,
-        plannedStartTime: String? = "09:00",
+        plannedStartTime: String? = nil,
         plannedDuration: TimeInterval = 1800,
         categoryId: UUID? = nil,
         priority: PriorityLevel? = .medium,
@@ -322,25 +354,58 @@ class TodoViewModel: ObservableObject {
             labels: labels,
             timeSessions: nil,
             subtasks: [],
-            assigneeId: teamMembers.first?.id
+            assigneeId: nil
         )
         todos.append(newTodo)
+        createTodoOnServer(newTodo)
     }
 
     func toggleComplete(_ todo: TodoEntry) {
         if let idx = todos.firstIndex(where: { $0.id == todo.id }) {
+            if activeTimerTodoId == todo.id {
+                clearTimerState()
+            }
             todos[idx].status = (todos[idx].status == .completed) ? .pending : .completed
+            persistTodo(todos[idx])
         }
     }
 
     func deleteTodo(id: UUID) {
+        if activeTimerTodoId == id {
+            clearTimerState()
+        }
+        let removedTodo = todos.first { $0.id == id }
         todos.removeAll { $0.id == id }
+        guard api.isAuthenticated else { return }
+
+        api.deleteTodo(id: id)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    if let removedTodo, self?.todos.contains(where: { $0.id == id }) == false {
+                        self?.todos.append(removedTodo)
+                    }
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { _ in }
+            .store(in: &cancellables)
     }
 
     func finishTodo(id todoId: UUID) {
         if let idx = todos.firstIndex(where: { $0.id == todoId }) {
+            if activeTimerTodoId == todoId {
+                clearTimerState()
+            }
             todos[idx].status = .completed
+            persistTodo(todos[idx])
         }
+    }
+
+    func updateTodo(_ todo: TodoEntry) {
+        if let index = todos.firstIndex(where: { $0.id == todo.id }) {
+            todos[index] = todo
+        }
+        persistTodo(todo)
     }
 
 
@@ -364,10 +429,11 @@ class TodoViewModel: ObservableObject {
             reminder: todo.reminder,
             labels: todo.labels,
             timeSessions: nil,
-            subtasks: (todo.subtasks ?? []).map { Subtask(id: UUID(), title: $0.title, isCompleted: false) },
+            subtasks: (todo.subtasks ?? []).map { Subtask(id: UUID().uuidString, title: $0.title, isCompleted: false) },
             assigneeId: todo.assigneeId
         )
         todos.append(copy)
+        createTodoOnServer(copy)
     }
 
     // MARK: - Subtask Actions
@@ -375,35 +441,104 @@ class TodoViewModel: ObservableObject {
         guard !title.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         if let idx = todos.firstIndex(where: { $0.id == todoId }) {
             var subtasks = todos[idx].subtasks ?? []
-            subtasks.append(Subtask(id: UUID(), title: title.trimmingCharacters(in: .whitespaces), isCompleted: false))
+            subtasks.append(Subtask(id: UUID().uuidString, title: title.trimmingCharacters(in: .whitespaces), isCompleted: false))
             todos[idx].subtasks = subtasks
+            persistTodo(todos[idx])
         }
     }
 
-    func toggleSubtask(todoId: UUID, subtaskId: UUID) {
+    func toggleSubtask(todoId: UUID, subtaskId: String) {
         if let todoIdx = todos.firstIndex(where: { $0.id == todoId }),
            var subtasks = todos[todoIdx].subtasks,
            let subIdx = subtasks.firstIndex(where: { $0.id == subtaskId }) {
             subtasks[subIdx].isCompleted.toggle()
             todos[todoIdx].subtasks = subtasks
+            persistTodo(todos[todoIdx])
         }
     }
 
-    func deleteSubtask(todoId: UUID, subtaskId: UUID) {
+    func deleteSubtask(todoId: UUID, subtaskId: String) {
         if let todoIdx = todos.firstIndex(where: { $0.id == todoId }),
            var subtasks = todos[todoIdx].subtasks {
             subtasks.removeAll { $0.id == subtaskId }
             todos[todoIdx].subtasks = subtasks
+            persistTodo(todos[todoIdx])
         }
+    }
+
+    private func createTodoOnServer(_ todo: TodoEntry) {
+        guard api.isAuthenticated else { return }
+
+        api.createTodo(todo)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] createdTodo in
+                guard let self,
+                      let index = self.todos.firstIndex(where: { $0.id == todo.id }) else { return }
+                self.todos[index] = createdTodo
+            }
+            .store(in: &cancellables)
+    }
+
+    private func persistTodo(_ todo: TodoEntry) {
+        guard api.isAuthenticated else { return }
+
+        api.updateTodo(todo)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] savedTodo in
+                guard let index = self?.todos.firstIndex(where: { $0.id == savedTodo.id }) else { return }
+                self?.todos[index] = savedTodo
+            }
+            .store(in: &cancellables)
     }
 
     func addCategory(name: String, colorHex: String, icon: String) {
         let cat = Category(id: UUID(), name: name, colorHex: colorHex, icon: icon, notes: "# \(icon) \(name) Document\n\nType notes...")
         categories.append(cat)
+        guard api.isAuthenticated else { return }
+
+        api.createCategory(cat)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] createdCategory in
+                guard let self,
+                      let index = self.categories.firstIndex(where: { $0.id == cat.id }) else { return }
+                self.categories[index] = createdCategory
+                for todoIndex in self.todos.indices where self.todos[todoIndex].categoryId == cat.id {
+                    self.todos[todoIndex].categoryId = createdCategory.id
+                }
+            }
+            .store(in: &cancellables)
     }
 
     func deleteCategory(id: UUID) {
+        let removedCategory = categories.first { $0.id == id }
+        let removedTodos = todos.filter { $0.categoryId == id }
         categories.removeAll { $0.id == id }
         todos.removeAll { $0.categoryId == id }
+        guard api.isAuthenticated else { return }
+
+        api.deleteCategory(id: id)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    if let removedCategory {
+                        self?.categories.append(removedCategory)
+                    }
+                    self?.todos.append(contentsOf: removedTodos)
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { _ in }
+            .store(in: &cancellables)
     }
 }

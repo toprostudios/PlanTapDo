@@ -3,48 +3,63 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var viewModel: TodoViewModel
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationView {
-            Form {
-                Section("🎨 Appearance & Readability") {
-                    Picker("Theme", selection: $viewModel.theme) {
-                        ForEach(AppTheme.allCases) { t in
-                            Text(t.rawValue).tag(t)
+        Form {
+            Section("👤 Personal Account") {
+                NavigationLink {
+                    AccountView(viewModel: viewModel)
+                } label: {
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(Color.indigo)
+                            .frame(width: 38, height: 38)
+                            .overlay {
+                                Text(viewModel.userAccount.name.prefix(1).uppercased())
+                                    .font(.headline.weight(.bold))
+                                    .foregroundStyle(.white)
+                            }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(viewModel.userAccount.name)
+                                .font(.subheadline.weight(.bold))
+                            Text(viewModel.userAccount.email)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .pickerStyle(.segmented)
                 }
 
-                Section("💾 Sample Demo Data") {
-                    Text("Reload sample tasks, calendar blocks, and categories anytime.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    Button {
-                        viewModel.loadSampleData()
-                        dismiss()
-                    } label: {
-                        Label("Reload Sample Tasks & Categories", systemImage: "arrow.clockwise")
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(.indigo)
-                    }
-                }
+                Text(viewModel.userAccount.isCloudSynced ? "Cloud sync is active." : "This personal account is using local demo data.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
-            .navigationTitle("Settings")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") {
-                        dismiss()
+
+            Section("🎨 Appearance & Readability") {
+                Picker("Theme", selection: $viewModel.theme) {
+                    ForEach(AppTheme.allCases) { theme in
+                        Text(theme.rawValue).tag(theme)
                     }
-                    .font(.body.weight(.bold))
+                }
+                .pickerStyle(.segmented)
+            }
+
+            Section("💾 Local Data") {
+                Text("Reload the personal sample tasks, calendar blocks, and categories.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    viewModel.loadSampleData()
+                } label: {
+                    Label("Reload Sample Tasks & Categories", systemImage: "arrow.clockwise")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.indigo)
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 

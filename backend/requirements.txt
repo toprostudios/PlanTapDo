@@ -1,8 +1,9 @@
-django
+django>=6.0,<6.1
 djangorestframework
 djangorestframework-simplejwt
 channels
 channels-redis
+daphne
 psycopg2-binary
 django-cors-headers
 drf-spectacular

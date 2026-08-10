@@ -1,6 +1,6 @@
 from rest_framework import viewsets, permissions, status, generics
-from rest_framework.views import APIView
 from rest_framework.response import Response
+from django.core.exceptions import ValidationError as DjangoValidationError
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
 
@@ -13,6 +13,7 @@ from .serializers import (
     TimeSessionSerializer,
     RepeatRuleSerializer,
     LocationTravelTimeSerializer,
+    SyncStateSerializer,
 )
 
 
@@ -114,8 +115,21 @@ class RepeatRuleViewSet(viewsets.ModelViewSet):
         return self.queryset.filter(todo__owner=self.request.user)
 
 
-class SyncView(APIView):
+STATUS_MAPPING = {
+    "todo": "pending",
+    "pending": "pending",
+    "in-progress": "in_progress",
+    "in_progress": "in_progress",
+    "done": "completed",
+    "completed": "completed",
+    "skipped": "skipped",
+    "archived": "archived",
+}
+
+
+class SyncView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    serializer_class = SyncStateSerializer
 
     def get(self, request):
         user = request.user
@@ -139,6 +153,10 @@ class SyncView(APIView):
         user = request.user
         data = request.data
 
+        validation_error = self._validate_sync_payload(data, user)
+        if validation_error:
+            return Response(validation_error, status=status.HTTP_400_BAD_REQUEST)
+
         # Sync categories
         for cat_data in data.get("categories", []):
             cat_id = cat_data.get("id")
@@ -161,6 +179,9 @@ class SyncView(APIView):
             if cat_id:
                 category_obj = Category.objects.filter(id=cat_id, owner=user).first()
 
+            raw_status = todo_data.get("status", "pending")
+            normalized_status = STATUS_MAPPING.get(raw_status, "pending")
+
             TodoEntry.objects.update_or_create(
                 id=todo_id,
                 owner=user,
@@ -174,7 +195,7 @@ class SyncView(APIView):
                     "planned_duration": todo_data.get("planned_duration") or todo_data.get("plannedDuration", 30),
                     "descriptive_deadline": todo_data.get("descriptive_deadline") or todo_data.get("descriptiveDeadline"),
                     "category": category_obj,
-                    "status": todo_data.get("status", "pending"),
+                    "status": normalized_status,
                     "priority": todo_data.get("priority", "medium"),
                     "location": todo_data.get("location"),
                     "reminder": todo_data.get("reminder"),
@@ -196,3 +217,63 @@ class SyncView(APIView):
         broadcast_user_update(user.id, "full_state_synced", {"synced": True})
         return self.get(request)
 
+    @staticmethod
+    def _validate_sync_payload(data, user):
+        if not isinstance(data, dict):
+            return {"detail": "Sync payload must be an object."}
+
+        categories = data.get("categories", [])
+        todos = data.get("todos", [])
+        travel_times = data.get("location_travel_times", {})
+
+        if not isinstance(categories, list) or not isinstance(todos, list):
+            return {"detail": "categories and todos must be arrays."}
+        if not isinstance(travel_times, dict):
+            return {"detail": "location_travel_times must be an object."}
+
+        payload_category_ids = {
+            str(category.get("id"))
+            for category in categories
+            if isinstance(category, dict) and category.get("id")
+        }
+
+        try:
+            for category in categories:
+                if not isinstance(category, dict):
+                    return {"detail": "Each category must be an object."}
+                category_id = category.get("id")
+                if category_id and Category.objects.filter(id=category_id).exclude(owner=user).exists():
+                    return {"detail": "A category ID belongs to another account."}
+
+            for todo in todos:
+                if not isinstance(todo, dict):
+                    return {"detail": "Each todo must be an object."}
+                todo_id = todo.get("id")
+                if todo_id and TodoEntry.objects.filter(id=todo_id).exclude(owner=user).exists():
+                    return {"detail": "A todo ID belongs to another account."}
+
+                category_id = todo.get("category_id") or todo.get("category")
+                if category_id:
+                    owns_category = Category.objects.filter(id=category_id, owner=user).exists()
+                    if not owns_category and str(category_id) not in payload_category_ids:
+                        return {"detail": "A todo references an unknown category."}
+
+                raw_status = todo.get("status", TodoEntry.Status.PENDING)
+                normalized_status = STATUS_MAPPING.get(raw_status, raw_status)
+                if normalized_status not in TodoEntry.Status.values:
+                    return {"detail": f"Invalid todo status: {raw_status}."}
+
+                priority = todo.get("priority", TodoEntry.Priority.MEDIUM)
+                if priority not in TodoEntry.Priority.values:
+                    return {"detail": f"Invalid todo priority: {priority}."}
+
+                planned_duration = todo.get("planned_duration", todo.get("plannedDuration", 30))
+                if not isinstance(planned_duration, int) or planned_duration < 0:
+                    return {"detail": "planned_duration must be a non-negative integer."}
+        except (DjangoValidationError, TypeError, ValueError):
+            return {"detail": "Sync payload contains an invalid ID."}
+
+        if any(not isinstance(minutes, int) or minutes < 0 for minutes in travel_times.values()):
+            return {"detail": "Travel times must be non-negative integers."}
+
+        return None

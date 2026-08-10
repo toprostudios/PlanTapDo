@@ -11,7 +11,7 @@ class UserSerializer(serializers.ModelSerializer):
 
 
 class RegisterSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, min_length=4)
+    password = serializers.CharField(write_only=True, required=True, min_length=8)
     tokens = serializers.SerializerMethodField()
 
     class Meta:
@@ -29,7 +29,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         )
         return user
 
-    def get_tokens(self, obj):
+    def get_tokens(self, obj) -> dict[str, str]:
         refresh = RefreshToken.for_user(obj)
         return {
             "refresh": str(refresh),
@@ -80,6 +80,13 @@ class TodoEntrySerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "owner", "created_at", "updated_at"]
 
+    def validate(self, attrs):
+        category = attrs.get("category")
+        request = self.context.get("request")
+        if category is not None and request is not None and category.owner_id != request.user.id:
+            raise serializers.ValidationError({"category_id": "Category does not belong to this account."})
+        return attrs
+
 
 class TimeSessionSerializer(serializers.ModelSerializer):
     duration = serializers.ReadOnlyField()
@@ -88,6 +95,13 @@ class TimeSessionSerializer(serializers.ModelSerializer):
         model = TimeSession
         fields = ["id", "todo", "start", "end", "duration"]
         read_only_fields = ["id", "duration"]
+
+    def validate(self, attrs):
+        todo = attrs.get("todo")
+        request = self.context.get("request")
+        if todo is not None and request is not None and todo.owner_id != request.user.id:
+            raise serializers.ValidationError({"todo": "Todo does not belong to this account."})
+        return attrs
 
 
 class LocationTravelTimeSerializer(serializers.ModelSerializer):
@@ -103,3 +117,22 @@ class RepeatRuleSerializer(serializers.ModelSerializer):
         fields = ["id", "todo", "frequency", "interval", "until_date"]
         read_only_fields = ["id"]
 
+    def validate(self, attrs):
+        todo = attrs.get("todo")
+        request = self.context.get("request")
+        if todo is not None and request is not None and todo.owner_id != request.user.id:
+            raise serializers.ValidationError({"todo": "Todo does not belong to this account."})
+        return attrs
+
+
+class SyncStateSerializer(serializers.Serializer):
+    user = UserSerializer(read_only=True)
+    categories = CategorySerializer(many=True, required=False)
+    todos = TodoEntrySerializer(many=True, required=False)
+    sessions = TimeSessionSerializer(many=True, read_only=True)
+    travel_times = LocationTravelTimeSerializer(many=True, read_only=True)
+    location_travel_times = serializers.DictField(
+        child=serializers.IntegerField(min_value=0),
+        write_only=True,
+        required=False,
+    )

@@ -1,93 +1,65 @@
-# 🕒 PlanTapDo — All-in-One Productivity & Time Management Ecosystem
+# PlanTapDo
 
-> **PlanTapDo** is a next-generation, high-performance productivity platform combining the best capabilities of **Todoist** (smart task management), **Google Calendar** (drag-and-drop timeline scheduling), **Notion** (rich document notes & Kanban boards), **Toggl Track** (live active time tracking & efficiency analytics), and **Enterprise Team Management**.
+PlanTapDo is a personal task planner for iPhone and iPad. The repository now contains only the native SwiftUI client and its Django API; Android and desktop/web builds are intentionally out of scope.
 
-Available as a **React Web Application** (`packages/web`) and an **iOS SwiftUI Application** (`ios/PlanTapDo`).
+## Repository layout
 
----
+- `ios/PlanTapDo`: SwiftUI application for iOS 16 and newer.
+- `backend`: Django 6 REST API, JWT authentication, and authenticated Channels WebSockets.
 
-## ⚡ Tech Stack & Architecture
+## iOS app
 
-- **Web Application**: React 18, TypeScript, Vite, Zustand State Management (with `localStorage` persistence), CSS Glassmorphism Design Tokens, HTML5 Drag-and-Drop.
-- **iOS Application**: SwiftUI (iOS 16+), Combine Framework, `@Published` Observable Object Architecture, Native Xcode Project integration.
-- **Backend API Sync**: Express / Node.js WebSocket real-time state synchronization layer.
+Open `ios/PlanTapDo.xcodeproj` in Xcode, or verify a device build without code signing:
 
----
-
-## 🚀 Quick Start & Build Instructions
-
-### Web Application (`packages/web`)
 ```bash
-# Install dependencies
-npm install
-
-# Run Web Development Server (Vite)
-npm run dev
-
-# Run Production Build & Typecheck
-npm run build
+xcodebuild -project ios/PlanTapDo.xcodeproj \
+  -scheme PlanTapDo \
+  -sdk iphoneos \
+  -destination generic/platform=iOS \
+  CODE_SIGNING_ALLOWED=NO build
 ```
 
-### iOS Application (`ios/PlanTapDo`)
-```bash
-# Open Xcode Project
-open ios/PlanTapDo.xcodeproj
+The app provides Today, Future, Categories, and Settings tabs. Personal account management lives in Settings. Tasks without a planned time remain simple list items; scheduled tasks appear on the vertical calendar. An overdue task that has not been started is moved below the current-time line until Start is pressed.
 
-# Swift Typecheck Verification (CLI)
-swiftc -typecheck -sdk $(xcrun --sdk macosx --show-sdk-path) ios/PlanTapDo/*.swift
+The Debug configuration uses `http://127.0.0.1:8000/api/`. Set the `API_BASE_URL` Xcode build setting when testing on a physical device or against another server.
+
+## Backend
+
+Python 3.13 or newer is recommended for Django 6.
+
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python manage.py migrate
+python manage.py check
+python manage.py test
+python manage.py runserver
 ```
 
----
+For an ASGI server with WebSocket support:
 
-## 📊 Feature Matrix & Product Benchmarking
+```bash
+cd backend
+source venv/bin/activate
+daphne -b 0.0.0.0 -p 8000 timetodo_api.asgi:application
+```
 
-| Feature Category | Feature Description | PlanTapDo | Todoist | Google Calendar | Notion | Toggl Track |
-| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Calendar Timeline** | 1-Day, 3-Day & 7-Day Weekly Views | ✅ | ❌ | ✅ | ❌ | ❌ |
-| **Calendar Interactivity** | Drag-and-drop task rescheduling | ✅ | ❌ | ✅ | ❌ | ❌ |
-| **Overlap & Capacity** | Overlapping tasks & capacity gauges | ✅ | ❌ | ✅ | ❌ | ❌ |
-| **Location Intelligence**| Remembered travel time matrix | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Natural Language** | Todoist-style quick add (`tomorrow at 10am #work @HQ !high 45m`)| ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Subtasks & Metadata** | Nested subtasks & descriptive deadlines | ✅ | ✅ | ❌ | ❌ | ❌ |
-| **Rich Documents** | Notion-style text canvas per category | ✅ | ❌ | ❌ | ✅ | ❌ |
-| **Kanban Board** | Interactive status column view | ✅ | ❌ | ❌ | ✅ | ❌ |
-| **Color Swatches** | 8-Color curated palette & custom hex picker | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Time Tracking** | Live `HH:MM:SS` timer & active bar | ✅ | ❌ | ❌ | ❌ | ✅ |
-| **Time Analytics** | Efficiency ratio & time reports | ✅ | ❌ | ❌ | ❌ | ✅ |
-| **Multi-Account** | Account switcher & profile manager | ✅ | ❌ | ✅ | ❌ | ❌ |
-| **Manager View** | Side-by-side multi-person matrix | ✅ | ❌ | ❌ | ❌ | ❌ |
+Production deployments must set `DJANGO_DEBUG=False`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, and `DJANGO_CORS_ALLOWED_ORIGINS`. Redis can be configured with `REDIS_HOST`; local development uses the in-memory channel layer.
 
----
+## API surface
 
-## 📖 Complete Feature Guide
+- `POST /api/auth/register/`
+- `POST /api/auth/token/`
+- `POST /api/auth/token/refresh/`
+- `GET/PATCH /api/auth/me/`
+- `/api/todos/`
+- `/api/categories/`
+- `/api/sessions/`
+- `/api/repeat-rules/`
+- `/api/travel-times/`
+- `GET/POST /api/sync/`
+- `/ws/todos/?token=<access-token>`
 
-1. **Google Calendar Features**:
-   - **Multi-Day Views**: Seamlessly toggle between **1-Day**, **3-Day**, and **7-Day Weekly** timeline grids.
-   - **Drag-and-Drop**: Drag task cards directly on hourly calendar grids to reschedule start times.
-   - **Overlap Support**: Allows multiple overlapping tasks on the timeline grid.
-   - **Location Travel Times Memory**: Remembers travel minutes between locations (e.g. `HQ Office ➔ Equinox Gym = 20m`) and automatically inserts travel blocks on timelines.
-
-2. **Todoist Features**:
-   - **Smart Natural Language Input**: Instant shorthand parsing (e.g. `"Roadmap sync tomorrow at 10am #work @HQ !high 45m"`).
-   - **Subtasks & Checklists**: Nestable subtasks inside any task entry.
-   - **Priority & Metadata**: Low, Medium, High, Urgent badges, reminder times, and descriptive non-calendar deadline notes.
-
-3. **Notion Features**:
-   - **Category Document Canvas**: Every category acts as a Notion document with gradient cover header, emoji badge, and autosaving text editor.
-   - **Slash Block Toolbar**: Quick buttons for `H1`, `H2`, `Task Checkbox`, `Bullet List`, `Quote`, and `Code Block`.
-   - **Kanban Board Views**: Switch Today/Future views into interactive status columns (`To Do`, `In Progress`, `Completed`, `Skipped`).
-   - **Category Color Swatches**: Palette picker with 8 swatches (`#7c6ff7` Purple, `#3ecf8e` Emerald, `#f5a623` Amber, `#60a5fa` Sky, `#ec4899` Pink, `#f43f5e` Coral, `#eab308` Yellow, `#14b8a6` Teal).
-
-4. **Toggl Track Features**:
-   - **Live Active Timer Bar**: Floating top bar showing current running task, category pill, location tag, and live `HH:MM:SS` digital counter.
-   - **Time Analytics Modal**: Toggl-style reports modal showing total tracked hours, planned budget, efficiency ratio %, category time breakdowns, and location breakdowns.
-
-5. **User Account & Multi-Account Switcher**:
-   - **Account Switcher**: Profile pill in navbar allowing 1-click switching between accounts (*Tony Pro Workspace*, *Personal Account*, *Product Team Workspace*).
-   - **Get New Account**: Quick registration form to sign in and generate new user accounts.
-
-6. **Team & Manager Workspace View**:
-   - **Multi-Person Side-by-Side View**: Managers can inspect multiple team members simultaneously.
-   - **Active Task Monitor**: Live indicator showing what each member is working on right now (`🔴 ACTIVE NOW`).
-   - **Lined Up Schedules**: Chronological list of lined-up tasks for each team member.
-   - **Manager Quick Task Dispatcher**: Dispatch new tasks or re-assign existing tasks between team members in 1 click.
+All task data is isolated by authenticated personal account.

@@ -44,7 +44,10 @@ struct CalendarHourlyGrid: View {
 
     private func dayTodos(for targetDate: Date) -> [TodoEntry] {
         let calendar = Calendar.current
-        return viewModel.todos.filter { calendar.isDate($0.doDate, inSameDayAs: targetDate) }
+        return viewModel.todos.filter {
+            calendar.isDate($0.doDate, inSameDayAs: targetDate)
+                && $0.plannedStartTime?.isEmpty == false
+        }
             .sorted { ($0.plannedStartTime ?? "23:59") < ($1.plannedStartTime ?? "23:59") }
     }
 
@@ -127,15 +130,7 @@ struct CalendarHourlyGrid: View {
             let timeColWidth: CGFloat = 46
             let gridWidth = totalAvailableWidth - timeColWidth
 
-            let calculatedColWidth: CGFloat = {
-                if calendarSpan == 1 {
-                    return gridWidth - 6
-                } else if calendarSpan == 3 {
-                    return max(100, gridWidth / 3.0)
-                } else {
-                    return 100
-                }
-            }()
+            let calculatedColWidth = max(1, gridWidth / CGFloat(max(1, visibleDates.count)))
 
             VStack(spacing: 0) {
                 // Header Bar with 1 Day | 3 Days | Week Segmented Control
@@ -164,7 +159,7 @@ struct CalendarHourlyGrid: View {
                 .padding(.vertical, 8)
                 .background(Color.secondary.opacity(0.08))
 
-                ScrollView([.horizontal, .vertical], showsIndicators: true) {
+                ScrollView(.vertical, showsIndicators: true) {
                     HStack(alignment: .top, spacing: 0) {
                         // Hour Grid Lines & Labels Column
                         VStack(spacing: 0) {
@@ -237,6 +232,7 @@ struct CalendarHourlyGrid: View {
                                                         .fill(Color.red)
                                                         .frame(height: 2)
                                                         .offset(y: currentTimePx)
+                                                        .zIndex(3)
                                                 }
                                             }
 
@@ -287,6 +283,7 @@ struct CalendarHourlyGrid: View {
                                                         updateTimeForTodo(todo, verticalOffset: offset)
                                                     }
                                                 )
+                                                .zIndex(2)
                                             }
                                         }
                                     }
@@ -314,7 +311,9 @@ struct CalendarHourlyGrid: View {
     }
 
     private func getPushedMetrics(for todo: TodoEntry, targetDate: Date) -> (top: CGFloat, height: CGFloat, isPushed: Bool, compressedMinutes: Int) {
-        let timeStr = todo.plannedStartTime ?? "09:00"
+        guard let timeStr = todo.plannedStartTime else {
+            return (0, 0, false, 0)
+        }
         let parts = timeStr.split(separator: ":").compactMap { Double($0) }
         let h = parts.first ?? 9.0
         let m = parts.count > 1 ? parts[1] : 0.0
@@ -322,25 +321,22 @@ struct CalendarHourlyGrid: View {
         let clampedHour = max(7.0, min(22.0, h))
         let plannedStartPx = (clampedHour - 7.0) * 60.0 + (m / 60.0) * 60.0
         let plannedDurationPx = (todo.plannedDuration / 3600.0) * 60.0
-        let plannedEndPx = plannedStartPx + plannedDurationPx
-
         let isTargetToday = Calendar.current.isDateInToday(targetDate)
         let isUnstarted = todo.status == .pending
+        let gridHeight = CGFloat(hours.count * 60)
+        let isCurrentTimeVisible = currentTimePx >= 0 && currentTimePx <= gridHeight
 
         var topPx = plannedStartPx
-        var heightPx = max(38.0, plannedDurationPx)
+        let heightPx = max(52.0, plannedDurationPx)
         var isPushed = false
-        var compressedMinutes = Int(todo.plannedDuration / 60.0)
+        let plannedMinutes = Int(todo.plannedDuration / 60.0)
 
-        if isTargetToday && isUnstarted && currentTimePx > plannedStartPx {
+        if isTargetToday && isUnstarted && isCurrentTimeVisible && currentTimePx >= plannedStartPx {
             isPushed = true
-            topPx = min(currentTimePx, plannedEndPx - 15)
-            let remainingPx = max(20.0, plannedEndPx - topPx)
-            heightPx = remainingPx
-            compressedMinutes = max(5, Int((remainingPx / 60.0) * 60.0))
+            topPx = currentTimePx + 3
         }
 
-        return (topPx, heightPx, isPushed, compressedMinutes)
+        return (topPx, heightPx, isPushed, plannedMinutes)
     }
 
     private func updateTimeForTodo(_ todo: TodoEntry, verticalOffset: CGFloat) {
@@ -361,9 +357,7 @@ struct CalendarHourlyGrid: View {
 
         var updated = todo
         updated.plannedStartTime = formattedTime
-        if let idx = viewModel.todos.firstIndex(where: { $0.id == todo.id }) {
-            viewModel.todos[idx] = updated
-        }
+        viewModel.updateTodo(updated)
     }
 }
 
@@ -384,53 +378,63 @@ struct CalendarCardView: View {
         Color(hex: cat?.colorHex ?? "7C6FF7")
     }
 
+    private var isTimerActive: Bool {
+        viewModel.activeTimerTodoId == todo.id
+    }
+
     var body: some View {
         let colWidth = containerWidth / CGFloat(layout.totalCols)
         let leftOffset = CGFloat(layout.colIndex) * colWidth
         let currentDragOffset = (draggingTodoId == todo.id) ? dragYTranslation : 0
 
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(spacing: 2) {
-                if let icon = cat?.icon {
-                    Text(icon).font(.system(size: 10))
-                }
-                Text(todo.title)
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                Spacer()
-
-                if todo.status != .completed {
-                    Button {
-                        viewModel.toggleComplete(todo)
-                    } label: {
-                        Image(systemName: todo.status == .inProgress ? "stop.fill" : "play.fill")
-                            .font(.system(size: 9))
-                            .foregroundStyle(todo.status == .inProgress ? .red : .green)
+        HStack(alignment: .top, spacing: 5) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 3) {
+                    if let icon = cat?.icon {
+                        Text(icon).font(.system(size: 10))
                     }
-                }
-            }
 
-            HStack(spacing: 4) {
-                Text("⏰ \(todo.plannedStartTime ?? "09:00")")
+                    Text(todo.title)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                }
+
+                Text(todo.plannedStartTime ?? "")
                     .font(.system(size: 9, weight: .medium))
                     .foregroundStyle(.secondary)
+            }
 
-                if let loc = todo.location, !loc.isEmpty {
-                    Text("📍 \(loc)")
-                        .font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(.green)
-                        .lineLimit(1)
-                }
+            Spacer(minLength: 0)
 
-                if let priority = todo.priority {
-                    Text(priority.badgeText)
-                        .font(.system(size: 8, weight: .black))
-                        .foregroundStyle(.red)
+            if todo.status != .completed {
+                Button {
+                    if isTimerActive {
+                        viewModel.stopTimer()
+                    } else {
+                        viewModel.startTimer(for: todo)
+                    }
+                } label: {
+                    Group {
+                        if containerWidth >= 130 {
+                            Label(
+                                isTimerActive ? "Stop" : "Start",
+                                systemImage: isTimerActive ? "stop.fill" : "play.fill"
+                            )
+                        } else {
+                            Image(systemName: isTimerActive ? "stop.fill" : "play.fill")
+                        }
+                    }
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, containerWidth >= 130 ? 10 : 8)
+                    .frame(minHeight: 32)
+                    .background(Capsule().fill(isTimerActive ? Color.red : Color.indigo))
                 }
+                .buttonStyle(.plain)
             }
         }
-        .padding(5)
+        .padding(6)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(metrics.isPushed ? Color.orange.opacity(0.15) : Color.primary.opacity(0.08))
@@ -442,8 +446,9 @@ struct CalendarCardView: View {
             alignment: .leading
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
         .frame(width: max(45, colWidth - 4), height: metrics.height, alignment: .topLeading)
+        .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
+        .animation(.linear(duration: 0.2), value: metrics.top)
         .gesture(
             DragGesture()
                 .onChanged { value in

@@ -5,7 +5,6 @@ struct CategoriesView: View {
     @ObservedObject var viewModel: TodoViewModel
 
     @State private var selectedCatId: UUID? = nil
-    @State private var activeSubTab: Int = 0 // 0: Notion Document, 1: Add Task Form
 
     // Task entry form state
     @State private var title = ""
@@ -13,14 +12,12 @@ struct CategoriesView: View {
     @State private var doDate = Date()
     @State private var dueDate = Date()
     @State private var hasDueDate = true
-    @State private var dueTime = "18:00"
     @State private var descriptiveDeadline = ""
+    @State private var hasPlannedTime = false
     @State private var plannedStartTime = "09:00"
     @State private var plannedDurationMinutes = 30
     @State private var priority: PriorityLevel = .medium
     @State private var location = ""
-    @State private var reminder = "15 minutes before"
-    @State private var labelsStr = ""
 
     // New Category state
     @State private var showingAddCategory = false
@@ -102,153 +99,56 @@ struct CategoriesView: View {
                         showingAddCategory: $showingAddCategory,
                         onSave: {
                             guard !newCatName.isEmpty else { return }
-                            let newCat = Category(id: UUID(), name: newCatName, colorHex: newCatHex, icon: newCatIcon)
-                            viewModel.categories.append(newCat)
-                            selectedCatId = newCat.id
+                            viewModel.addCategory(name: newCatName, colorHex: newCatHex, icon: newCatIcon)
+                            selectedCatId = viewModel.categories.last?.id
                             newCatName = ""
                             showingAddCategory = false
                         }
                     )
                 }
 
-                // Subtab Header: Notion Document vs Add Task Form
-                HStack(spacing: 0) {
-                    Button {
-                        activeSubTab = 0
-                    } label: {
-                        VStack(spacing: 6) {
-                            Label("Notion Document", systemImage: "doc.plaintext")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(activeSubTab == 0 ? .indigo : .secondary)
-                            Rectangle()
-                                .fill(activeSubTab == 0 ? Color.indigo : Color.clear)
-                                .frame(height: 2)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-
-                    Button {
-                        activeSubTab = 1
-                    } label: {
-                        VStack(spacing: 6) {
-                            Label("Task Entry Form", systemImage: "plus.circle.fill")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(activeSubTab == 1 ? .indigo : .secondary)
-                            Rectangle()
-                                .fill(activeSubTab == 1 ? Color.indigo : Color.clear)
-                                .frame(height: 2)
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
-                }
-                .padding(.top, 4)
-
-                // Subtab Content
-                if activeSubTab == 0 {
-                    // Notion Canvas View
-                    VStack(alignment: .leading, spacing: 14) {
-                        if let activeCat = activeCategory {
-                            // Cover Banner Card
-                            ZStack(alignment: .bottomLeading) {
-                                RoundedRectangle(cornerRadius: 16)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [Color(hex: activeCat.colorHex).opacity(0.6), Color(hex: activeCat.colorHex).opacity(0.15)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .frame(height: 100)
-
-                                HStack(spacing: 10) {
-                                    Text(activeCat.icon ?? "🔖")
-                                        .font(.system(size: 32))
-                                        .padding(8)
-                                        .background(Circle().fill(Color.white.opacity(0.9)))
-
-                                    Text(activeCat.name)
-                                        .font(.title2.weight(.bold))
-                                        .foregroundStyle(.white)
-                                }
-                                .padding(12)
-                            }
+                // Task Entry Form
+                VStack(spacing: 14) {
+                    if successBanner {
+                        Text("✅ Task Added Successfully!")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(10)
+                            .frame(maxWidth: .infinity)
+                            .background(RoundedRectangle(cornerRadius: 10).fill(Color.green))
                             .padding(.horizontal)
-
-                            // Quick Insert Toolbar
-                            ScrollView(.horizontal, showsIndicators: false) {
-                                HStack(spacing: 8) {
-                                    Button("+ Heading") { insertBlock("# ", for: activeCat) }
-                                    Button("+ Bullet") { insertBlock("• ", for: activeCat) }
-                                    Button("+ Todo") { insertBlock("[ ] ", for: activeCat) }
-                                    Button("+ Quote") { insertBlock("> ", for: activeCat) }
-                                    Button("+ Code") { insertBlock("```\n\n```", for: activeCat) }
-                                }
-                                .font(.caption.weight(.bold))
-                                .buttonStyle(.bordered)
-                                .tint(.indigo)
-                                .padding(.horizontal)
-                            }
-
-                            // Editable Text Area for Category Notes
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("NOTION NOTES CANVAS")
-                                    .font(.caption2.weight(.heavy))
-                                    .foregroundStyle(.secondary)
-
-                                TextEditor(text: Binding(
-                                    get: { getCatNotes(activeCat) },
-                                    set: { setCatNotes($0, for: activeCat) }
-                                ))
-                                .font(.system(.body, design: .monospaced))
-                                .frame(minHeight: 280)
-                                .padding(8)
-                                .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray).opacity(0.15))
-                                .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.primary.opacity(0.1), lineWidth: 1))
-
-                            }
-                            .padding(.horizontal)
-                        }
                     }
-                    .padding(.vertical)
-                } else {
-                    // Task Entry Form
-                    VStack(spacing: 14) {
-                        if successBanner {
-                            Text("✅ Task Added Successfully!")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(10)
-                                .frame(maxWidth: .infinity)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Color.green))
-                                .padding(.horizontal)
-                        }
 
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text("CREATE TASK")
-                                .font(.caption2.weight(.heavy))
-                                .foregroundStyle(.secondary)
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("CREATE TASK FOR \(activeCategory?.name.uppercased() ?? "CATEGORY")")
+                            .font(.caption2.weight(.heavy))
+                            .foregroundStyle(.secondary)
 
-                            TextField("Task Title...", text: $title)
-                                .textFieldStyle(.roundedBorder)
+                        TextField("Task Title...", text: $title)
+                            .textFieldStyle(.roundedBorder)
 
-                            TextField("Description / Notes...", text: $description, axis: .vertical)
-                                .lineLimit(3...5)
-                                .textFieldStyle(.roundedBorder)
+                        TextField("Description / Notes...", text: $description, axis: .vertical)
+                            .lineLimit(3...5)
+                            .textFieldStyle(.roundedBorder)
 
-                            DatePicker("Do Date (Execution)", selection: $doDate, displayedComponents: .date)
+                        DatePicker("Do Date (Execution)", selection: $doDate, displayedComponents: .date)
+                            .font(.subheadline)
+
+                        Toggle("Set Due Date & Deadline", isOn: $hasDueDate)
+                            .font(.subheadline.weight(.semibold))
+
+                        if hasDueDate {
+                            DatePicker("Due Date (Deadline)", selection: $dueDate, displayedComponents: .date)
                                 .font(.subheadline)
 
-                            Toggle("Set Due Date & Deadline", isOn: $hasDueDate)
-                                .font(.subheadline.weight(.semibold))
+                            TextField("Descriptive Deadline (e.g. Before 6 PM sync)", text: $descriptiveDeadline)
+                                .textFieldStyle(.roundedBorder)
+                        }
 
-                            if hasDueDate {
-                                DatePicker("Due Date (Deadline)", selection: $dueDate, displayedComponents: .date)
-                                    .font(.subheadline)
+                        Toggle("Set a planned time", isOn: $hasPlannedTime)
+                            .font(.subheadline.weight(.semibold))
 
-                                TextField("Descriptive Deadline (e.g. Before 6 PM sync)", text: $descriptiveDeadline)
-                                    .textFieldStyle(.roundedBorder)
-                            }
-
+                        if hasPlannedTime {
                             HStack {
                                 Text("Planned Time:").font(.subheadline)
                                 TextField("09:00", text: $plannedStartTime)
@@ -267,75 +167,61 @@ struct CategoriesView: View {
                                 }
                                 .pickerStyle(.menu)
                             }
-
-                            Picker("Priority", selection: $priority) {
-                                Text("Low").tag(PriorityLevel.low)
-                                Text("Medium").tag(PriorityLevel.medium)
-                                Text("High ⚡").tag(PriorityLevel.high)
-                                Text("Urgent 🔥").tag(PriorityLevel.urgent)
-                            }
-                            .pickerStyle(.segmented)
-
-                            TextField("Location (e.g. Office / Zoom)", text: $location)
-                                .textFieldStyle(.roundedBorder)
-
-                            Button {
-                                guard !title.isEmpty else { return }
-                                viewModel.createTodo(
-                                    title: title,
-                                    description: description.isEmpty ? nil : description,
-                                    doDate: doDate,
-                                    dueDate: hasDueDate ? dueDate : nil,
-                                    plannedStartTime: plannedStartTime,
-                                    plannedDuration: TimeInterval(plannedDurationMinutes * 60),
-                                    categoryId: activeCategory?.id ?? viewModel.categories.first?.id,
-                                    priority: priority,
-                                    location: location.isEmpty ? nil : location
-                                )
-                                title = ""
-                                description = ""
-                                location = ""
-                                successBanner = true
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                                    successBanner = false
-                                }
-                            } label: {
-                                Text("Create Task")
-                                    .font(.headline.weight(.bold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 14)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 12)
-                                            .fill(title.isEmpty ? Color.gray : Color(hex: activeCategory?.colorHex ?? "7C6FF7"))
-                                    )
-                            }
-                            .disabled(title.isEmpty)
                         }
-                        .padding(16)
-                        .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray).opacity(0.15))
-                        .padding(.horizontal)
+
+                        Picker("Priority", selection: $priority) {
+                            Text("Low").tag(PriorityLevel.low)
+                            Text("Medium").tag(PriorityLevel.medium)
+                            Text("High ⚡").tag(PriorityLevel.high)
+                            Text("Urgent 🔥").tag(PriorityLevel.urgent)
+                        }
+                        .pickerStyle(.segmented)
+
+                        TextField("Location (e.g. Office / Zoom)", text: $location)
+                            .textFieldStyle(.roundedBorder)
+
+                        Button {
+                            guard !title.isEmpty else { return }
+                            viewModel.createTodo(
+                                title: title,
+                                description: description.isEmpty ? nil : description,
+                                doDate: doDate,
+                                dueDate: hasDueDate ? dueDate : nil,
+                                descriptiveDeadline: hasDueDate && !descriptiveDeadline.isEmpty ? descriptiveDeadline : nil,
+                                plannedStartTime: hasPlannedTime ? plannedStartTime : nil,
+                                plannedDuration: TimeInterval(plannedDurationMinutes * 60),
+                                categoryId: activeCategory?.id ?? viewModel.categories.first?.id,
+                                priority: priority,
+                                location: location.isEmpty ? nil : location
+                            )
+                            title = ""
+                            description = ""
+                            location = ""
+                            hasPlannedTime = false
+                            successBanner = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                                successBanner = false
+                            }
+                        } label: {
+                            Text("Create Task")
+                                .font(.headline.weight(.bold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(title.isEmpty ? Color.gray : Color(hex: activeCategory?.colorHex ?? "7C6FF7"))
+                                )
+                        }
+                        .disabled(title.isEmpty)
                     }
-                    .padding(.vertical)
+                    .padding(16)
+                    .background(RoundedRectangle(cornerRadius: 16).fill(Color.gray).opacity(0.15))
+                    .padding(.horizontal)
                 }
+                .padding(.vertical)
             }
         }
-    }
-
-    private func getCatNotes(_ cat: Category) -> String {
-        return cat.notes ?? "# \(cat.icon ?? "") \(cat.name) Notes\n\nType notes here..."
-    }
-
-    private func setCatNotes(_ notes: String, for cat: Category) {
-        if let idx = viewModel.categories.firstIndex(where: { $0.id == cat.id }) {
-            viewModel.categories[idx].notes = notes
-        }
-    }
-
-    private func insertBlock(_ prefix: String, for cat: Category) {
-        let current = getCatNotes(cat)
-        let updated = current.isEmpty ? prefix : "\(current)\n\(prefix)"
-        setCatNotes(updated, for: cat)
     }
 }
 
@@ -380,7 +266,6 @@ struct AddCategoryInlineView: View {
                             .onTapGesture { newCatHex = hex }
                     }
                 }
-
             }
 
             Button("Save Category", action: onSave)

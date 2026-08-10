@@ -25,45 +25,14 @@ struct ContentView: View {
                     }
                     .tag(2)
 
-                TeamView(viewModel: viewModel)
+                SettingsView(viewModel: viewModel)
                     .tabItem {
-                        Label("Team", systemImage: "person.3.fill")
+                        Label("Settings", systemImage: "gearshape.fill")
                     }
                     .tag(3)
             }
             .navigationTitle(navigationTitle(for: viewModel.selectedTab))
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        viewModel.showingAccountModal = true
-                    } label: {
-                        HStack(spacing: 5) {
-                            Text("👤 \(viewModel.userAccount.name)")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.primary)
-                            Text("👑 \(viewModel.userAccount.tier)")
-                                .font(.caption2.weight(.heavy))
-                                .foregroundStyle(.indigo)
-                        }
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        viewModel.showingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.indigo)
-                    }
-                }
-            }
-            .sheet(isPresented: $viewModel.showingSettings) {
-                SettingsView(viewModel: viewModel)
-            }
-            .sheet(isPresented: $viewModel.showingAccountModal) {
-                AccountView(viewModel: viewModel)
-            }
             .accentColor(.indigo)
             .preferredColorScheme(viewModel.theme == .dark ? .dark : (viewModel.theme == .light ? .light : .dark))
             .onAppear {
@@ -77,7 +46,7 @@ struct ContentView: View {
         case 0: return "📍 Today"
         case 1: return "🗓️ Future"
         case 2: return "🏷️ Categories"
-        case 3: return "👥 Team"
+        case 3: return "⚙️ Settings"
         default: return "PlanTapDo"
         }
     }

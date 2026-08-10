@@ -2,7 +2,11 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
+from rest_framework_simplejwt.tokens import RefreshToken
+from asgiref.sync import async_to_sync
+from channels.testing import WebsocketCommunicator
 from .models import User, Category, TodoEntry, TimeSession, LocationTravelTime
+from .asgi import application
 
 
 class AccountAndSyncTests(TestCase):
@@ -36,6 +40,21 @@ class AccountAndSyncTests(TestCase):
         self.assertIn("tokens", response.data)
         self.assertIn("access", response.data["tokens"])
         self.assertEqual(response.data["username"], "newuser")
+
+    def test_user_registration_rejects_short_password(self):
+        self.client.logout()
+        response = self.client.post(
+            self.register_url,
+            {
+                "username": "short-password",
+                "email": "short@plantapdo.app",
+                "password": "short",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("password", response.data)
 
     def test_user_profile_me(self):
         response = self.client.get(self.me_url)
@@ -76,6 +95,22 @@ class AccountAndSyncTests(TestCase):
         self.assertEqual(todo_res.data["title"], "Build Sync API")
         self.assertEqual(todo_res.data["priority"], "high")
         self.assertEqual(len(todo_res.data["subtasks"]), 1)
+
+    def test_todo_can_remain_unscheduled_without_description(self):
+        response = self.client.post(
+            reverse("todo-list"),
+            {
+                "title": "Simple list item",
+                "description": None,
+                "planned_start_time": None,
+                "do_date": "2026-08-09",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertIsNone(response.data["description"])
+        self.assertIsNone(response.data["planned_start_time"])
 
     def test_sync_get_and_post(self):
         # Create sample state
@@ -123,3 +158,96 @@ class AccountAndSyncTests(TestCase):
         self.assertEqual(len(post_res.data["todos"]), 2)
         self.assertEqual(len(post_res.data["travel_times"]), 1)
         self.assertEqual(post_res.data["travel_times"][0]["duration_minutes"], 20)
+
+    def test_sync_rejects_non_object_payload(self):
+        response = self.client.post(self.sync_url, [], format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data["detail"], "Sync payload must be an object.")
+
+
+class OwnershipIsolationTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="owner", password="securepassword123")
+        self.other_user = User.objects.create_user(username="other", password="securepassword123")
+        self.other_category = Category.objects.create(owner=self.other_user, name="Private")
+        self.other_todo = TodoEntry.objects.create(owner=self.other_user, title="Private todo")
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_cannot_assign_another_users_category(self):
+        response = self.client.post(
+            reverse("todo-list"),
+            {"title": "Invalid reference", "category_id": str(self.other_category.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(TodoEntry.objects.filter(owner=self.user).exists())
+
+    def test_cannot_create_session_for_another_users_todo(self):
+        response = self.client.post(
+            reverse("session-list"),
+            {"todo": str(self.other_todo.id), "start": "2026-08-01T12:00:00Z"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(TimeSession.objects.filter(todo=self.other_todo).exists())
+
+    def test_cannot_create_repeat_rule_for_another_users_todo(self):
+        response = self.client.post(
+            reverse("repeat-rule-list"),
+            {"todo": str(self.other_todo.id), "frequency": "weekly", "interval": 1},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_sync_rejects_foreign_ids_instead_of_crashing(self):
+        response = self.client.post(
+            reverse("sync_state"),
+            {
+                "categories": [
+                    {"id": str(self.other_category.id), "name": "Overwrite attempt"}
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.other_category.refresh_from_db()
+        self.assertEqual(self.other_category.name, "Private")
+
+
+class WebSocketAuthenticationTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="socket-user", password="securepassword123")
+
+    def test_rejects_anonymous_connection(self):
+        async def scenario():
+            communicator = WebsocketCommunicator(
+                application,
+                "/ws/todos/",
+                headers=[(b"origin", b"http://localhost")],
+            )
+            connected, close_code = await communicator.connect()
+            self.assertFalse(connected)
+            self.assertEqual(close_code, 4401)
+
+        async_to_sync(scenario)()
+
+    def test_accepts_valid_access_token(self):
+        token = str(RefreshToken.for_user(self.user).access_token)
+
+        async def scenario():
+            communicator = WebsocketCommunicator(
+                application,
+                f"/ws/todos/?token={token}",
+                headers=[(b"origin", b"http://localhost")],
+            )
+            connected, _ = await communicator.connect()
+            self.assertTrue(connected)
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()

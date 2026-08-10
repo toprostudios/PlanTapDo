@@ -3,16 +3,15 @@ import SwiftUI
 
 struct AccountView: View {
     @ObservedObject var viewModel: TodoViewModel
-    @Environment(\.dismiss) private var dismiss
 
-    @State private var newName = ""
+    @State private var newUsername = ""
     @State private var newEmail = ""
+    @State private var newPassword = ""
     @State private var showingAddForm = false
 
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
+        ScrollView {
+            VStack(spacing: 20) {
                     // Active Account Profile Card
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 14) {
@@ -44,12 +43,12 @@ struct AccountView: View {
                         }
 
                         HStack(spacing: 8) {
-                            Text("☁️ Cloud Synced")
+                            Text(viewModel.userAccount.isCloudSynced ? "☁️ Cloud Synced" : "📱 Local Demo")
                                 .font(.caption2.weight(.bold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(Capsule().fill(Color.green.opacity(0.15)))
-                                .foregroundStyle(.green)
+                                .background(Capsule().fill((viewModel.userAccount.isCloudSynced ? Color.green : Color.orange).opacity(0.15)))
+                                .foregroundStyle(viewModel.userAccount.isCloudSynced ? .green : .orange)
                         }
                     }
                     .padding(16)
@@ -74,20 +73,40 @@ struct AccountView: View {
 
                         if showingAddForm {
                             VStack(spacing: 10) {
-                                TextField("Full Name", text: $newName)
+                                TextField("Username", text: $newUsername)
                                     .textFieldStyle(.roundedBorder)
                                 TextField("Email Address", text: $newEmail)
                                     .textFieldStyle(.roundedBorder)
+                                    .textInputAutocapitalization(.never)
+                                    .keyboardType(.emailAddress)
+                                SecureField("Password", text: $newPassword)
+                                    .textFieldStyle(.roundedBorder)
+
+                                if !newPassword.isEmpty && newPassword.count < 8 {
+                                    Text("Use at least 8 characters.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+
+                                if let errorMessage = viewModel.errorMessage {
+                                    Text(errorMessage)
+                                        .font(.caption)
+                                        .foregroundStyle(.red)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
 
                                 Button("Create & Sign In") {
-                                    guard !newName.isEmpty && !newEmail.isEmpty else { return }
-                                    viewModel.createAndSwitchAccount(name: newName, email: newEmail)
-                                    newName = ""
-                                    newEmail = ""
-                                    showingAddForm = false
+                                    guard !newUsername.isEmpty && !newEmail.isEmpty && !newPassword.isEmpty else { return }
+                                    viewModel.registerAndSwitchAccount(
+                                        username: newUsername,
+                                        email: newEmail,
+                                        password: newPassword
+                                    )
                                 }
                                 .buttonStyle(.borderedProminent)
                                 .tint(.indigo)
+                                .disabled(viewModel.isLoading || newPassword.count < 8)
                             }
                             .padding(12)
                             .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.12)))
@@ -138,18 +157,18 @@ struct AccountView: View {
                     .padding(16)
                     .background(RoundedRectangle(cornerRadius: 16).fill(Color.primary.opacity(0.03)))
                     .padding(.horizontal)
-                }
-                .padding(.vertical)
             }
-            .navigationTitle("👤 User Account")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            #endif
+            .padding(.vertical)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("Personal Account")
+        .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: viewModel.userAccount.id) { _ in
+            guard viewModel.userAccount.isCloudSynced else { return }
+            newUsername = ""
+            newEmail = ""
+            newPassword = ""
+            showingAddForm = false
         }
     }
 }

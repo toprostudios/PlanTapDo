@@ -64,7 +64,7 @@ class TimeSession(models.Model):
     end = models.DateTimeField(blank=True, null=True)
 
     @property
-    def duration(self):
+    def duration(self) -> float | None:
         if self.end:
             return (self.end - self.start).total_seconds() / 60  # minutes
         return None
@@ -99,4 +99,3 @@ class RepeatRule(models.Model):
 
     def __str__(self):
         return f"{self.frequency} repeat for {self.todo.title}"
-

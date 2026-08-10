@@ -4,8 +4,10 @@ import Combine
 
 final class APIClient {
     static let shared = APIClient()
-    private let baseURL = URL(string: "http://localhost:8000/api")!
+    private let baseURL: URL
     private var token: String?
+
+    var isAuthenticated: Bool { token != nil }
 
     private let jsonDecoder: JSONDecoder = {
         let decoder = JSONDecoder()
@@ -21,12 +23,25 @@ final class APIClient {
         return encoder
     }()
 
-    private init() {}
+    private init() {
+        let configuredURL = Bundle.main.object(forInfoDictionaryKey: "API_BASE_URL") as? String
+        if let configuredURL,
+           !configuredURL.contains("$("),
+           let url = URL(string: configuredURL) {
+            baseURL = url
+        } else {
+            baseURL = URL(string: "http://127.0.0.1:8000/api/")!
+        }
+    }
 
     // MARK: - Auth
 
     func setAuthToken(_ token: String) {
         self.token = token
+    }
+
+    func clearAuthToken() {
+        token = nil
     }
 
     // MARK: - Generic request helper (for Decodable responses)
@@ -44,9 +59,14 @@ final class APIClient {
 
         return URLSession.shared.dataTaskPublisher(for: req)
             .tryMap { data, response in
-                guard let http = response as? HTTPURLResponse,
-                      (200..<300).contains(http.statusCode) else {
+                guard let http = response as? HTTPURLResponse else {
                     throw URLError(.badServerResponse)
+                }
+                guard (200..<300).contains(http.statusCode) else {
+                    let message = (try? JSONSerialization.jsonObject(with: data) as? [String: Any])
+                        .flatMap { $0["detail"] as? String }
+                        ?? HTTPURLResponse.localizedString(forStatusCode: http.statusCode)
+                    throw APIError(statusCode: http.statusCode, message: message)
                 }
                 return data
             }
@@ -82,13 +102,19 @@ final class APIClient {
     }
 
     func createTodo(_ todo: TodoEntry) -> AnyPublisher<TodoEntry, Error> {
-        let data = try? jsonEncoder.encode(todo)
-        return request("todos/", method: "POST", body: data)
+        do {
+            return request("todos/", method: "POST", body: try jsonEncoder.encode(todo))
+        } catch {
+            return Fail(error: error).eraseToAnyPublisher()
+        }
     }
 
     func updateTodo(_ todo: TodoEntry) -> AnyPublisher<TodoEntry, Error> {
-        let data = try? jsonEncoder.encode(todo)
-        return request("todos/\(todo.id)/", method: "PUT", body: data)
+        do {
+            return request("todos/\(todo.id)/", method: "PUT", body: try jsonEncoder.encode(todo))
+        } catch {
+            return Fail(error: error).eraseToAnyPublisher()
+        }
     }
 
     func deleteTodo(id: UUID) -> AnyPublisher<Void, Error> {
@@ -133,5 +159,25 @@ final class APIClient {
     func fetchCategories() -> AnyPublisher<[Category], Error> {
         request("categories/")
     }
+
+    func createCategory(_ category: Category) -> AnyPublisher<Category, Error> {
+        do {
+            return request("categories/", method: "POST", body: try jsonEncoder.encode(category))
+        } catch {
+            return Fail(error: error).eraseToAnyPublisher()
+        }
+    }
+
+    func deleteCategory(id: UUID) -> AnyPublisher<Void, Error> {
+        voidRequest("categories/\(id)/", method: "DELETE")
+    }
 }
 
+private struct APIError: LocalizedError {
+    let statusCode: Int
+    let message: String
+
+    var errorDescription: String? {
+        "Server error \(statusCode): \(message)"
+    }
+}
