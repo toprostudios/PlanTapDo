@@ -1,10 +1,5 @@
 from django.urls import path, include
 from rest_framework import routers
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-    TokenVerifyView,
-)
 from .views import (
     CategoryViewSet,
     TodoEntryViewSet,
@@ -12,8 +7,14 @@ from .views import (
     RepeatRuleViewSet,
     LocationTravelTimeViewSet,
     RegisterView,
+    LogoutView,
+    ThrottledTokenObtainPairView,
+    ThrottledTokenRefreshView,
+    ThrottledTokenVerifyView,
     UserProfileView,
     SyncView,
+    health_live,
+    health_ready,
 )
 
 router = routers.DefaultRouter()
@@ -24,12 +25,14 @@ router.register(r'travel-times', LocationTravelTimeViewSet, basename='travel-tim
 router.register(r'repeat-rules', RepeatRuleViewSet, basename='repeat-rule')
 
 urlpatterns = [
+    path('health/live/', health_live, name='health_live'),
+    path('health/ready/', health_ready, name='health_ready'),
     path('api/', include(router.urls)),
     path('api/auth/register/', RegisterView.as_view(), name='auth_register'),
     path('api/auth/me/', UserProfileView.as_view(), name='auth_me'),
-    path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('api/auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+    path('api/auth/logout/', LogoutView.as_view(), name='auth_logout'),
+    path('api/auth/token/', ThrottledTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/token/refresh/', ThrottledTokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/token/verify/', ThrottledTokenVerifyView.as_view(), name='token_verify'),
     path('api/sync/', SyncView.as_view(), name='sync_state'),
 ]
-

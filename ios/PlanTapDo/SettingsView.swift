@@ -1,10 +1,37 @@
-// SettingsView.swift
 import SwiftUI
+
+private enum SettingsSection: String, CaseIterable, Identifiable {
+    case general = "Settings"
+    case focus = "Focus time"
+    case reports = "Reports"
+
+    var id: String { rawValue }
+}
 
 struct SettingsView: View {
     @ObservedObject var viewModel: TodoViewModel
+    @State private var selectedSection: SettingsSection = .general
 
     var body: some View {
+        VStack(spacing: 0) {
+            Picker("Settings section", selection: $selectedSection) {
+                ForEach(SettingsSection.allCases) { section in
+                    Text(section.rawValue).tag(section)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding()
+
+            switch selectedSection {
+            case .general: generalSettings
+            case .focus: FocusTimeSettingsView(viewModel: viewModel)
+            case .reports: WeeklyReportsView(viewModel: viewModel)
+            }
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+    }
+
+    private var generalSettings: some View {
         Form {
             Section("👤 Personal Account") {
                 NavigationLink {
@@ -29,10 +56,10 @@ struct SettingsView: View {
                         }
                     }
                 }
+            }
 
-                Text(viewModel.userAccount.isCloudSynced ? "Cloud sync is active." : "This personal account is using local demo data.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            Section("✅ Task Visibility") {
+                Toggle("Show completed tasks", isOn: $viewModel.showCompletedTasks)
             }
 
             Section("🎨 Appearance & Readability") {
@@ -44,25 +71,322 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
             }
 
-            Section("💾 Local Data") {
-                Text("Reload the personal sample tasks, calendar blocks, and categories.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Button {
-                    viewModel.loadSampleData()
-                } label: {
-                    Label("Reload Sample Tasks & Categories", systemImage: "arrow.clockwise")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.indigo)
-                }
-            }
         }
         .scrollContentBackground(.hidden)
-        .background(Color(uiColor: .systemGroupedBackground))
     }
 }
 
-#Preview("Settings View") {
-    SettingsView(viewModel: TodoViewModel())
+private struct FocusTimeSettingsView: View {
+    @ObservedObject var viewModel: TodoViewModel
+    @State private var name = "Work time"
+    @State private var weekdays = Set([2, 3, 4, 5, 6])
+    @State private var start = 9 * 60
+    @State private var end = 17 * 60
+    @State private var allowedCategoryIds = Set<UUID>()
+    var body: some View {
+        Form {
+            Section("Focus time") {
+                Text("Tasks outside the allowed categories are automatically moved past these hours. Recurring tasks keep their fixed time.")
+                    .font(.caption).foregroundStyle(.secondary)
+                TextField("Block name", text: $name)
+                    .modernTextInput()
+                WeekdaySelector(selectedWeekdays: $weekdays)
+                Picker("From", selection: $start) { ForEach(Array(stride(from: 0, through: 23 * 60, by: 60)), id: \.self) { Text(time($0)).tag($0) } }
+                Picker("Until", selection: $end) { ForEach(Array(stride(from: 60, through: 24 * 60, by: 60)), id: \.self) { Text(time($0)).tag($0) } }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Allowed during focus time")
+                        .font(.subheadline.weight(.semibold))
+                    ForEach(viewModel.categories) { category in
+                        Button {
+                            if allowedCategoryIds.contains(category.id) { allowedCategoryIds.remove(category.id) }
+                            else { allowedCategoryIds.insert(category.id) }
+                        } label: {
+                            HStack {
+                                Text("\(category.icon ?? "🔖") \(category.name)")
+                                Spacer()
+                                Image(systemName: allowedCategoryIds.contains(category.id) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(allowedCategoryIds.contains(category.id) ? .green : .secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Text("All unselected categories are pushed outside the focus window.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Add focus time") {
+                    viewModel.addFocusBlock(
+                        FocusBlock(name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Focus time" : name, weekdays: weekdays, startMinutes: start, endMinutes: end, allowedCategoryIds: allowedCategoryIds)
+                    )
+                }
+                .disabled(weekdays.isEmpty || end <= start)
+            }
+            Section("Your rules") {
+                ForEach(viewModel.focusBlocks) { block in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(block.name).fontWeight(.semibold)
+                            Text("\(time(block.startMinutes)) – \(time(block.endMinutes))").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Text(allowedLabel(for: block)).foregroundStyle(.secondary)
+                    }
+                }.onDelete { offsets in for index in offsets { viewModel.removeFocusBlock(id: viewModel.focusBlocks[index].id) } }
+            }
+        }.scrollContentBackground(.hidden)
+    }
+    private func time(_ minutes: Int) -> String { String(format: "%d:%02d", minutes / 60, minutes % 60) }
+    private func allowedLabel(for block: FocusBlock) -> String {
+        if let id = block.categoryId { return "Pushes \(viewModel.categories.first { $0.id == id }?.name ?? "category")" }
+        if block.allowedCategoryIds.isEmpty { return "Pushes all categories" }
+        let names = viewModel.categories.filter { block.allowedCategoryIds.contains($0.id) }.map(\.name).joined(separator: ", ")
+        return "Allows \(names)"
+    }
+}
+
+private struct WeeklyReportsView: View {
+    @ObservedObject var viewModel: TodoViewModel
+    @State private var weekOffset = 0
+    @State private var showTeamReport = false
+
+    private var interval: DateInterval {
+        let calendar = Calendar.current
+        let anchor = calendar.date(byAdding: .weekOfYear, value: weekOffset, to: Date()) ?? Date()
+        return calendar.dateInterval(of: .weekOfYear, for: anchor)
+            ?? DateInterval(start: calendar.startOfDay(for: anchor), duration: 7 * 86_400)
+    }
+
+    private var weekTodos: [TodoEntry] {
+        viewModel.todos.filter { interval.contains($0.doDate) }
+    }
+
+    private var completedTodos: [TodoEntry] {
+        weekTodos.filter { $0.status == .completed }
+    }
+
+    private var plannedHours: Double {
+        weekTodos.reduce(0) { $0 + $1.plannedDuration } / 3_600
+    }
+
+    private var trackedHours: Double {
+        viewModel.todos.flatMap { $0.timeSessions ?? [] }
+            .filter { interval.contains($0.start) }
+            .reduce(0) { partial, session in
+                partial + (session.duration ?? session.end.map { $0.timeIntervalSince(session.start) } ?? 0)
+            } / 3_600
+    }
+
+    private var dailyCompletion: [(day: Date, completed: Int, total: Int)] {
+        let calendar = Calendar.current
+        return (0..<7).compactMap { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: interval.start) else { return nil }
+            let tasks = weekTodos.filter { calendar.isDate($0.doDate, inSameDayAs: day) }
+            return (day, tasks.filter { $0.status == .completed }.count, tasks.count)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if viewModel.isProReviewDemo {
+                Picker("Report scope", selection: $showTeamReport) {
+                    Text("My report").tag(false)
+                    Text("Team").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal)
+                .padding(.bottom, 8)
+            }
+            if showTeamReport {
+                TeamWeeklyReportView(viewModel: viewModel)
+            } else {
+                personalReport
+            }
+        }
+    }
+
+    private var personalReport: some View {
+        ScrollView {
+            LazyVStack(spacing: 14) {
+                HStack {
+                    Button { weekOffset -= 1 } label: {
+                        Image(systemName: "chevron.left")
+                            .frame(width: 40, height: 40)
+                    }
+
+                    Spacer()
+
+                    VStack(spacing: 2) {
+                        Text("Weekly report")
+                            .font(.headline)
+                        Text("\(interval.start.formatted(.dateTime.month(.abbreviated).day())) – \(interval.end.addingTimeInterval(-1).formatted(.dateTime.month(.abbreviated).day()))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button { weekOffset += 1 } label: {
+                        Image(systemName: "chevron.right")
+                            .frame(width: 40, height: 40)
+                    }
+                    .disabled(weekOffset >= 0)
+                }
+                .padding(.horizontal)
+
+                HStack(spacing: 10) {
+                    ReportMetricCard(
+                        title: "Completed",
+                        value: "\(completedTodos.count)/\(weekTodos.count)",
+                        icon: "checkmark.circle.fill",
+                        color: .green
+                    )
+                    ReportMetricCard(
+                        title: "Planned",
+                        value: String(format: "%.1fh", plannedHours),
+                        icon: "calendar",
+                        color: .indigo
+                    )
+                    ReportMetricCard(
+                        title: "Actual",
+                        value: String(format: "%.1fh", trackedHours),
+                        icon: "timer",
+                        color: .orange
+                    )
+                }
+                .padding(.horizontal)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Completed tasks by day")
+                        .font(.headline)
+                    HStack(alignment: .bottom, spacing: 8) {
+                        ForEach(dailyCompletion, id: \.day) { item in
+                            VStack(spacing: 5) {
+                                Text("\(item.completed)")
+                                    .font(.caption2.weight(.bold))
+                                GeometryReader { geo in
+                                    let maxCount = max(1, dailyCompletion.map(\.total).max() ?? 1)
+                                    RoundedRectangle(cornerRadius: 4)
+                                        .fill(Color.indigo)
+                                        .frame(height: max(3, geo.size.height * CGFloat(item.completed) / CGFloat(maxCount)), alignment: .bottom)
+                                        .frame(maxHeight: .infinity, alignment: .bottom)
+                                }
+                                .frame(height: 64)
+                                Text(item.day.formatted(.dateTime.weekday(.narrow)))
+                                    .font(.caption2.weight(.bold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .accessibilityLabel("\(item.day.formatted(.dateTime.weekday(.wide))): \(item.completed) of \(item.total) tasks completed")
+                        }
+                    }
+                }
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Color.secondary.opacity(0.1)))
+                .padding(.horizontal)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Completion by category")
+                        .font(.headline)
+
+                    ForEach(viewModel.categories) { category in
+                        let tasks = weekTodos.filter { $0.categoryId == category.id }
+                        if !tasks.isEmpty {
+                            let completed = tasks.filter { $0.status == .completed }.count
+                            let progress = Double(completed) / Double(tasks.count)
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text("\(category.icon ?? "🔖") \(category.name)")
+                                        .font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                    Text("\(completed)/\(tasks.count)")
+                                        .font(.caption.weight(.bold))
+                                        .foregroundStyle(.secondary)
+                                }
+                                ProgressView(value: progress)
+                                    .tint(Color(hex: category.colorHex))
+                            }
+                        }
+                    }
+
+                    if weekTodos.isEmpty {
+                        Text("No tasks were scheduled for this week.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .padding(.vertical, 20)
+                    }
+                }
+                .padding(16)
+                .background(RoundedRectangle(cornerRadius: 16).fill(Color.secondary.opacity(0.1)))
+                .padding(.horizontal)
+            }
+            .padding(.bottom, 28)
+        }
+    }
+}
+
+private struct TeamWeeklyReportView: View {
+    @ObservedObject var viewModel: TodoViewModel
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Team members")
+                    .font(.headline)
+                Text("This week’s planned and completed tasks, per person.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(viewModel.teamReviewPeople) { person in
+                    let tasks = viewModel.todos.filter { $0.assigneeId == person.id.uuidString }
+                    let completed = tasks.filter { $0.status == .completed }.count
+                    HStack(spacing: 12) {
+                        Circle().fill(Color.indigo).frame(width: 38, height: 38)
+                            .overlay(Text(person.name.prefix(1)).foregroundStyle(.white).fontWeight(.bold))
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(person.name).font(.subheadline.weight(.bold))
+                            Text("\(completed) completed · \(tasks.count) planned")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        ProgressView(value: tasks.isEmpty ? 0 : Double(completed) / Double(tasks.count))
+                            .frame(width: 72).tint(.indigo)
+                    }
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.1)))
+                }
+            }
+            .padding()
+        }
+    }
+}
+
+private struct ReportMetricCard: View {
+    let title: String
+    let value: String
+    let icon: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            Text(value)
+                .font(.headline.weight(.black))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(title)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(RoundedRectangle(cornerRadius: 14).fill(Color.secondary.opacity(0.1)))
+    }
+}
+
+struct SettingsView_Previews: PreviewProvider {
+    static var previews: some View {
+        NavigationStack {
+            SettingsView(viewModel: TodoViewModel())
+        }
+    }
 }

@@ -4,11 +4,10 @@ import SwiftUI
 struct FutureView: View {
     @ObservedObject var viewModel: TodoViewModel
     @State private var selectedTodo: TodoEntry?
+    @State private var showingTaskComposer = false
 
     private var futureTodos: [TodoEntry] {
-        viewModel.todos
-            .filter { Calendar.current.isDate($0.doDate, inSameDayAs: viewModel.selectedFutureDate) }
-            .sorted { ($0.plannedStartTime ?? "23:59") < ($1.plannedStartTime ?? "23:59") }
+        viewModel.todos(on: viewModel.selectedFutureDate)
     }
 
     private var weekDays: [Date] {
@@ -31,6 +30,7 @@ struct FutureView: View {
             if viewModel.displayStyle == .list {
                 ScreenContainer(maxWidth: 600) {
                     VStack(spacing: 10) {
+                        pageHeader
                         layoutPicker
                         weekNavigator
                         listContent
@@ -38,9 +38,15 @@ struct FutureView: View {
                 }
             } else {
                 VStack(spacing: 8) {
+                    pageHeader
                     layoutPicker
                     weekNavigator
-                    CalendarHourlyGrid(viewModel: viewModel, date: viewModel.selectedFutureDate)
+                    CalendarHourlyGrid(
+                        viewModel: viewModel,
+                        date: viewModel.selectedFutureDate,
+                        onOpenTask: { selectedTodo = $0 },
+                        showsTodayBadge: false
+                    )
                 }
                 .padding(.top, 4)
                 .background(Color(uiColor: .systemGroupedBackground))
@@ -48,6 +54,25 @@ struct FutureView: View {
         }
         .sheet(item: $selectedTodo) { todo in
             TaskDetailView(todo: todo, viewModel: viewModel)
+        }
+        .sheet(isPresented: $showingTaskComposer) {
+            TaskComposerView(viewModel: viewModel, start: viewModel.selectedFutureDate)
+                .presentationDetents([.medium, .large])
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if viewModel.displayStyle == .list {
+                Button { showingTaskComposer = true } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                        .background(Circle().fill(Color.indigo))
+                        .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
+                }
+                .accessibilityLabel("Add task")
+                .padding(.trailing, 22)
+                .padding(.bottom, 18)
+            }
         }
     }
 
@@ -59,6 +84,14 @@ struct FutureView: View {
         .pickerStyle(.segmented)
         .padding(.horizontal)
         .padding(.top, 4)
+    }
+
+    private var pageHeader: some View {
+        Text("Upcoming")
+            .font(.headline.weight(.bold))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
     }
 
     private var weekNavigator: some View {
@@ -112,7 +145,7 @@ struct FutureView: View {
     }
 
     private var listContent: some View {
-        LazyVStack(spacing: 10) {
+        LazyVStack(spacing: 6) {
             ForEach(futureTodos) { todo in
                 TaskListRowView(
                     todo: todo,
@@ -126,9 +159,6 @@ struct FutureView: View {
                 VStack(spacing: 8) {
                     Text("🎉 No tasks scheduled")
                         .font(.headline)
-                    Text("Select another day above or create a new task")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
                 .padding(40)
             }
@@ -137,6 +167,6 @@ struct FutureView: View {
     }
 }
 
-#Preview("Future View") {
-    FutureView(viewModel: TodoViewModel())
+struct FutureView_Previews: PreviewProvider {
+    static var previews: some View { FutureView(viewModel: TodoViewModel()) }
 }

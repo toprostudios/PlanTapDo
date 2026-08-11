@@ -25,7 +25,22 @@
 		A1000018 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000018 /* AccountView.swift */; };
 		A1000020 /* ScreenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* ScreenContainer.swift */; };
 		A1000021 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000021 /* Assets.xcassets */; };
+		A1000024 /* AppStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000024 /* AppStateStore.swift */; };
+		A1000025 /* CredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000025 /* CredentialStore.swift */; };
+		A1000026 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B1000026 /* PrivacyInfo.xcprivacy */; };
+		A3000001 /* AppStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3000001 /* AppStateStoreTests.swift */; };
+		A3000002 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B3000002 /* XCTest.framework */; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		P3000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = F2000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F1000001;
+			remoteInfo = PlanTapDo;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
 		B1000001 /* PlanTapDo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlanTapDo.swift; sourceTree = "<group>"; };
@@ -47,7 +62,15 @@
 		B1000018 /* AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
 		B1000020 /* ScreenContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenContainer.swift; sourceTree = "<group>"; };
 		B1000021 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		B1000022 /* SubscriptionManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubscriptionManager.swift; sourceTree = "<group>"; };
+		B1000023 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		B1000024 /* AppStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateStore.swift; sourceTree = "<group>"; };
+		B1000025 /* CredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialStore.swift; sourceTree = "<group>"; };
+		B1000026 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B3000001 /* AppStateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateStoreTests.swift; sourceTree = "<group>"; };
+		B3000002 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 		C1000001 /* PlanTapDo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlanTapDo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C3000001 /* PlanTapDoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = PlanTapDoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,6 +81,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D3000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A3000002 /* XCTest.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -65,6 +96,7 @@
 			isa = PBXGroup;
 			children = (
 				E1000001 /* PlanTapDo */,
+				E3000001 /* PlanTapDoTests */,
 				E1000002 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -91,6 +123,11 @@
 				B1000018 /* AccountView.swift */,
 				B1000020 /* ScreenContainer.swift */,
 				B1000021 /* Assets.xcassets */,
+				B1000024 /* AppStateStore.swift */,
+				B1000025 /* CredentialStore.swift */,
+				B1000026 /* PrivacyInfo.xcprivacy */,
+				B1000022 /* SubscriptionManager.swift */,
+				B1000023 /* OnboardingView.swift */,
 			);
 			path = PlanTapDo;
 			sourceTree = "<group>";
@@ -99,8 +136,17 @@
 			isa = PBXGroup;
 			children = (
 				C1000001 /* PlanTapDo.app */,
+				C3000001 /* PlanTapDoTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		E3000001 /* PlanTapDoTests */ = {
+			isa = PBXGroup;
+			children = (
+				B3000001 /* AppStateStoreTests.swift */,
+			);
+			path = PlanTapDoTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -123,6 +169,24 @@
 			productReference = C1000001 /* PlanTapDo.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F3000001 /* PlanTapDoTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = G3000003 /* Build configuration list for PBXNativeTarget "PlanTapDoTests" */;
+			buildPhases = (
+				H3000001 /* Sources */,
+				D3000001 /* Frameworks */,
+				H3000002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				P3000002 /* PBXTargetDependency */,
+			);
+			name = PlanTapDoTests;
+			productName = PlanTapDoTests;
+			productReference = C3000001 /* PlanTapDoTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -135,6 +199,10 @@
 				TargetAttributes = {
 					F1000001 = {
 						CreatedOnToolsVersion = 15.0;
+					};
+					F3000001 = {
+						CreatedOnToolsVersion = 26.0;
+						TestTargetID = F1000001;
 					};
 				};
 			};
@@ -152,6 +220,7 @@
 			projectRoot = "";
 			targets = (
 				F1000001 /* PlanTapDo */,
+				F3000001 /* PlanTapDoTests */,
 			);
 		};
 /* End PBXProject section */
@@ -162,6 +231,14 @@
 			buildActionMask = 2147483647;
 			files = (
 				A1000021 /* Assets.xcassets in Resources */,
+				A1000026 /* PrivacyInfo.xcprivacy in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		H3000002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -189,10 +266,28 @@
 				A1000017 /* AnalyticsView.swift in Sources */,
 				A1000018 /* AccountView.swift in Sources */,
 				A1000020 /* ScreenContainer.swift in Sources */,
+				A1000024 /* AppStateStore.swift in Sources */,
+				A1000025 /* CredentialStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		H3000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A3000001 /* AppStateStoreTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		P3000002 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = F1000001 /* PlanTapDo */;
+			targetProxy = P3000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		G2000001 /* Debug */ = {
@@ -340,7 +435,7 @@
 		G2000004 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				API_BASE_URL = "http://127.0.0.1:8000/api/";
+				API_BASE_URL = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -362,6 +457,48 @@
 			};
 			name = Release;
 		};
+		G3000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = BUB3Q77S9P;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.plantapdo.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlanTapDo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlanTapDo";
+			};
+			name = Debug;
+		};
+		G3000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = BUB3Q77S9P;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.plantapdo.app.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlanTapDo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlanTapDo";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -379,6 +516,15 @@
 			buildConfigurations = (
 				G2000003 /* Debug */,
 				G2000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		G3000003 /* Build configuration list for PBXNativeTarget "PlanTapDoTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				G3000001 /* Debug */,
+				G3000002 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

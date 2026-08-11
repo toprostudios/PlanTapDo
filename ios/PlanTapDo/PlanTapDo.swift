@@ -3,11 +3,12 @@ import SwiftUI
 
 @main
 struct PlanTapDoApp: App {
-    // Entry point for the SwiftUI app
+    // Onboarding and StoreKit are paused for the current release. The flows remain
+    // in the project so they can be restored when the launch plan is ready.
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .preferredColorScheme(.dark) // premium dark mode
+                .preferredColorScheme(.dark)
         }
     }
 }

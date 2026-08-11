@@ -4,13 +4,16 @@ import SwiftUI
 struct TodayView: View {
     @ObservedObject var viewModel: TodoViewModel
 
-    @State private var newTodoTitle = ""
     @State private var selectedTodo: TodoEntry?
+    @State private var showingTaskComposer = false
 
     private var todayTodos: [TodoEntry] {
-        viewModel.todos
-            .filter { Calendar.current.isDateInToday($0.doDate) }
-            .sorted { ($0.plannedStartTime ?? "23:59") < ($1.plannedStartTime ?? "23:59") }
+        viewModel.todos(on: Date())
+    }
+
+    private func overdueLabel(for todo: TodoEntry) -> String? {
+        guard let overdueDate = todo.overdueFromDate else { return nil }
+        return "OVERDUE · " + overdueDate.formatted(date: .abbreviated, time: .omitted)
     }
 
     private func category(for categoryId: UUID?) -> Category? {
@@ -23,15 +26,15 @@ struct TodayView: View {
             if viewModel.displayStyle == .list {
                 ScreenContainer(maxWidth: 600) {
                     VStack(spacing: 12) {
+                        pageHeader
                         layoutPicker
-                        quickAddBar
-
-                        LazyVStack(spacing: 10) {
+                        LazyVStack(spacing: 6) {
                             ForEach(todayTodos) { todo in
                                 TaskListRowView(
                                     todo: todo,
                                     category: category(for: todo.categoryId),
                                     viewModel: viewModel,
+                                    overdueLabel: overdueLabel(for: todo),
                                     onOpen: { selectedTodo = todo }
                                 )
                             }
@@ -40,9 +43,6 @@ struct TodayView: View {
                                 VStack(spacing: 8) {
                                     Text("🎉 All clear for Today!")
                                         .font(.headline)
-                                    Text("Add a task above to plan your day")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
                                 }
                                 .padding(40)
                             }
@@ -52,8 +52,13 @@ struct TodayView: View {
                 }
             } else {
                 VStack(spacing: 8) {
+                    pageHeader
                     layoutPicker
-                    CalendarHourlyGrid(viewModel: viewModel, date: Date())
+                    CalendarHourlyGrid(
+                        viewModel: viewModel,
+                        date: Date(),
+                        onOpenTask: { selectedTodo = $0 }
+                    )
                 }
                 .padding(.top, 4)
                 .background(Color(uiColor: .systemGroupedBackground))
@@ -61,6 +66,25 @@ struct TodayView: View {
         }
         .sheet(item: $selectedTodo) { todo in
             TaskDetailView(todo: todo, viewModel: viewModel)
+        }
+        .sheet(isPresented: $showingTaskComposer) {
+            TaskComposerView(viewModel: viewModel, start: Date(), showsSchedule: false)
+                .presentationDetents([.medium, .large])
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if viewModel.displayStyle == .list {
+                Button { showingTaskComposer = true } label: {
+                    Image(systemName: "plus")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 56)
+                        .background(Circle().fill(Color.indigo))
+                        .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
+                }
+                .accessibilityLabel("Add task for now")
+                .padding(.trailing, 22)
+                .padding(.bottom, 18)
+            }
         }
     }
 
@@ -74,48 +98,23 @@ struct TodayView: View {
         .padding(.top, 4)
     }
 
-    private var quickAddBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "bolt.fill")
-                .foregroundStyle(.orange)
-
-            TextField("Quick add a task...", text: $newTodoTitle)
-                .textFieldStyle(.plain)
-                .font(.subheadline)
-                .onSubmit(addQuickTodo)
-
-            Button("Add", action: addQuickTodo)
-                .font(.callout.weight(.bold))
-                .buttonStyle(.borderedProminent)
-                .tint(.indigo)
-                .disabled(newTodoTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Color.gray.opacity(0.15)))
-        .padding(.horizontal)
+    private var pageHeader: some View {
+        Text("Today")
+            .font(.headline.weight(.bold))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.top, 4)
     }
 
-    private func addQuickTodo() {
-        let title = newTodoTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return }
-
-        viewModel.createTodo(
-            title: title,
-            doDate: Date(),
-            dueDate: nil,
-            plannedStartTime: nil,
-            categoryId: viewModel.categories.first?.id
-        )
-        newTodoTitle = ""
-    }
 }
 
 struct TaskListRowView: View {
     let todo: TodoEntry
     let category: Category?
     @ObservedObject var viewModel: TodoViewModel
+    var overdueLabel: String? = nil
     let onOpen: () -> Void
+    var usesOuterPadding: Bool = true
 
     private var categoryColor: Color {
         Color(hex: category?.colorHex ?? "7C6FF7")
@@ -126,12 +125,12 @@ struct TaskListRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 9) {
             Button {
                 viewModel.toggleComplete(todo)
             } label: {
                 Image(systemName: todo.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .font(.title2)
+                    .font(.title3)
                     .foregroundStyle(todo.status == .completed ? .green : .secondary)
             }
             .buttonStyle(.plain)
@@ -140,10 +139,10 @@ struct TaskListRowView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(todo.title)
-                            .font(.body.weight(.semibold))
+                            .font(.subheadline)
                             .strikethrough(todo.status == .completed)
                             .foregroundStyle(todo.status == .completed ? .secondary : .primary)
-                            .lineLimit(2)
+                            .lineLimit(1)
 
                         if let icon = category?.icon {
                             Text(icon)
@@ -153,11 +152,17 @@ struct TaskListRowView: View {
 
                     if let plannedStartTime = todo.plannedStartTime, !plannedStartTime.isEmpty {
                         Text("\(plannedStartTime) · \(Int(todo.plannedDuration / 60)) min")
-                            .font(.caption.weight(.medium))
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+
+                    if let overdueLabel {
+                        Text(overdueLabel)
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.red)
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minWidth: 0, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -170,21 +175,18 @@ struct TaskListRowView: View {
                         viewModel.startTimer(for: todo)
                     }
                 } label: {
-                    Label(
-                        isTimerActive ? "Stop" : "Start",
-                        systemImage: isTimerActive ? "stop.fill" : "play.fill"
-                    )
-                    .font(.callout.weight(.bold))
+                    Image(systemName: isTimerActive ? "stop.fill" : "play.fill")
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .frame(minHeight: 44)
-                    .background(Capsule().fill(isTimerActive ? Color.red : Color.indigo))
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(isTimerActive ? Color.red : Color.indigo))
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isTimerActive ? "Stop \(todo.title)" : "Start \(todo.title)")
             }
         }
-        .padding(12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.15)))
         .overlay(alignment: .leading) {
             Rectangle()
@@ -192,7 +194,7 @@ struct TaskListRowView: View {
                 .frame(width: 4)
         }
         .clipShape(RoundedRectangle(cornerRadius: 14))
-        .padding(.horizontal)
+        .padding(.horizontal, usesOuterPadding ? 16 : 0)
     }
 }
 
@@ -207,6 +209,8 @@ struct TaskDetailView: View {
     @State private var hasPlannedTime: Bool
     @State private var plannedTime: Date
     @State private var durationMinutes: Int
+    @State private var categoryId: UUID?
+    @State private var recurrenceFrequency: RecurrenceFrequency
 
     init(todo: TodoEntry, viewModel: TodoViewModel) {
         self.todo = todo
@@ -217,6 +221,8 @@ struct TaskDetailView: View {
         _hasPlannedTime = State(initialValue: todo.plannedStartTime != nil)
         _plannedTime = State(initialValue: Self.date(from: todo.plannedStartTime) ?? Date())
         _durationMinutes = State(initialValue: max(15, Int(todo.plannedDuration / 60)))
+        _categoryId = State(initialValue: todo.categoryId)
+        _recurrenceFrequency = State(initialValue: todo.recurrenceFrequency)
     }
 
     var body: some View {
@@ -224,9 +230,10 @@ struct TaskDetailView: View {
             Form {
                 Section("Task") {
                     TextField("Task title", text: $title)
+                        .modernTextInput()
 
                     TextEditor(text: $description)
-                        .frame(minHeight: 140)
+                        .modernTextEditor(minHeight: 140)
                         .overlay(alignment: .topLeading) {
                             if description.isEmpty {
                                 Text("Add a description or notes")
@@ -239,6 +246,12 @@ struct TaskDetailView: View {
                 }
 
                 Section("Schedule") {
+                    if let overdueDate = todo.overdueFromDate {
+                        LabeledContent("Overdue") {
+                            Text(overdueDate.formatted(date: .long, time: .omitted))
+                                .foregroundStyle(.red)
+                        }
+                    }
                     DatePicker("Day", selection: $doDate, displayedComponents: .date)
                     Toggle("Set a time", isOn: $hasPlannedTime)
 
@@ -251,6 +264,22 @@ struct TaskDetailView: View {
                             Text("1 hour").tag(60)
                             Text("1.5 hours").tag(90)
                             Text("2 hours").tag(120)
+                        }
+                    }
+
+                    Picker("Repeat", selection: $recurrenceFrequency) {
+                        ForEach(RecurrenceFrequency.allCases) { frequency in
+                            Text(frequency.label).tag(frequency)
+                        }
+                    }
+                }
+
+                Section("Organization") {
+                    Picker("Category", selection: $categoryId) {
+                        Text("No Category").tag(UUID?.none)
+                        ForEach(viewModel.categories) { category in
+                            Text("\(category.icon ?? "🔖") \(category.name)")
+                                .tag(Optional(category.id))
                         }
                     }
                 }
@@ -279,7 +308,15 @@ struct TaskDetailView: View {
         updatedTodo.description = trimmedDescription.isEmpty ? nil : trimmedDescription
         updatedTodo.doDate = doDate
         updatedTodo.plannedStartTime = hasPlannedTime ? plannedTime.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) : nil
+        if updatedTodo.originalPlannedStartTime == nil {
+            updatedTodo.originalPlannedStartTime = updatedTodo.plannedStartTime
+        }
         updatedTodo.plannedDuration = TimeInterval(durationMinutes * 60)
+        updatedTodo.categoryId = categoryId
+        updatedTodo.recurrenceFrequency = recurrenceFrequency
+        if recurrenceFrequency == .none {
+            updatedTodo.recurrenceSeriesId = nil
+        }
 
         viewModel.updateTodo(updatedTodo)
         dismiss()
@@ -293,6 +330,6 @@ struct TaskDetailView: View {
     }
 }
 
-#Preview("Today View") {
-    TodayView(viewModel: TodoViewModel())
+struct TodayView_Previews: PreviewProvider {
+    static var previews: some View { TodayView(viewModel: TodoViewModel()) }
 }

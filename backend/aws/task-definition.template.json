@@ -1,0 +1,74 @@
+{
+  "family": "plantapdo-api",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "REPLACE_WITH_ECS_TASK_EXECUTION_ROLE_ARN",
+  "taskRoleArn": "REPLACE_WITH_MINIMAL_APPLICATION_TASK_ROLE_ARN",
+  "containerDefinitions": [
+    {
+      "name": "plantapdo-api",
+      "image": "REPLACE_WITH_ECR_IMAGE_URI_AND_IMMUTABLE_TAG",
+      "essential": true,
+      "user": "10001:10001",
+      "privileged": false,
+      "readonlyRootFilesystem": true,
+      "linuxParameters": {
+        "initProcessEnabled": true,
+        "capabilities": {
+          "drop": ["ALL"]
+        }
+      },
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "DJANGO_ENVIRONMENT", "value": "production" },
+        { "name": "DJANGO_DEBUG", "value": "False" },
+        { "name": "DJANGO_ALLOWED_HOSTS", "value": "api.example.com" },
+        { "name": "DJANGO_TRUST_PROXY_SSL_HEADER", "value": "True" },
+        { "name": "DJANGO_SECURE_SSL_REDIRECT", "value": "True" },
+        { "name": "DJANGO_NUM_PROXIES", "value": "1" },
+        { "name": "POSTGRES_DB", "value": "plantapdo" },
+        { "name": "POSTGRES_USER", "value": "plantapdo" },
+        { "name": "POSTGRES_HOST", "value": "REPLACE_WITH_RDS_PROXY_ENDPOINT" },
+        { "name": "POSTGRES_PORT", "value": "5432" },
+        { "name": "POSTGRES_SSLMODE", "value": "verify-full" },
+        { "name": "POSTGRES_SSLROOTCERT", "value": "/etc/ssl/certs/ca-certificates.crt" },
+        { "name": "REDIS_KEY_PREFIX", "value": "plantapdo-production" },
+        { "name": "APP_RELEASE", "value": "REPLACE_WITH_GIT_SHA" },
+        { "name": "DJANGO_LOG_LEVEL", "value": "INFO" }
+      ],
+      "secrets": [
+        { "name": "DJANGO_SECRET_KEY", "valueFrom": "REPLACE_WITH_SECRET_ARN:DJANGO_SECRET_KEY::" },
+        { "name": "JWT_SIGNING_KEY", "valueFrom": "REPLACE_WITH_SECRET_ARN:JWT_SIGNING_KEY::" },
+        { "name": "POSTGRES_PASSWORD", "valueFrom": "REPLACE_WITH_SECRET_ARN:POSTGRES_PASSWORD::" },
+        { "name": "REDIS_URL", "valueFrom": "REPLACE_WITH_SECRET_ARN:REDIS_URL::" },
+        { "name": "SENTRY_DSN", "valueFrom": "REPLACE_WITH_SECRET_ARN:SENTRY_DSN::" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/plantapdo-api",
+          "awslogs-region": "REPLACE_WITH_AWS_REGION",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "python -c \"from urllib.request import urlopen; assert urlopen('http://127.0.0.1:8000/health/live/', timeout=3).status == 200\""
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      },
+      "stopTimeout": 30
+    }
+  ]
+}

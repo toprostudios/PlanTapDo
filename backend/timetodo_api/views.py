@@ -1,51 +1,150 @@
-from rest_framework import viewsets, permissions, status, generics
-from rest_framework.response import Response
-from django.core.exceptions import ValidationError as DjangoValidationError
+import logging
+import uuid
+
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-
-from .models import Category, TodoEntry, TimeSession, RepeatRule, LocationTravelTime, User
-from .serializers import (
-    UserSerializer,
-    RegisterSerializer,
-    CategorySerializer,
-    TodoEntrySerializer,
-    TimeSessionSerializer,
-    RepeatRuleSerializer,
-    LocationTravelTimeSerializer,
-    SyncStateSerializer,
+from django.core.cache import cache
+from django.db import IntegrityError, connection, transaction
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET
+from rest_framework import generics, permissions, serializers, status, viewsets
+from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+    TokenVerifyView,
 )
+
+from .models import Category, LocationTravelTime, RepeatRule, TimeSession, TodoEntry, User
+from .serializers import (
+    CategorySerializer,
+    LocationTravelTimeSerializer,
+    LogoutSerializer,
+    RegisterSerializer,
+    RepeatRuleSerializer,
+    SyncStateSerializer,
+    TimeSessionSerializer,
+    TodoEntrySerializer,
+    UserSerializer,
+)
+from .security import revoke_access_token
+
+
+logger = logging.getLogger(__name__)
+
+MAX_SYNC_CATEGORIES = 500
+MAX_SYNC_TODOS = 5_000
+MAX_SYNC_TRAVEL_TIMES = 1_000
+
+STATUS_MAPPING = {
+    "todo": TodoEntry.Status.PENDING,
+    "pending": TodoEntry.Status.PENDING,
+    "in-progress": TodoEntry.Status.IN_PROGRESS,
+    "in_progress": TodoEntry.Status.IN_PROGRESS,
+    "done": TodoEntry.Status.COMPLETED,
+    "completed": TodoEntry.Status.COMPLETED,
+    "skipped": TodoEntry.Status.SKIPPED,
+    "archived": TodoEntry.Status.ARCHIVED,
+}
 
 
 def broadcast_user_update(user_id, event_type, data):
-    """Helper to broadcast real-time sync updates to a specific user's channel group."""
+    """Broadcast an update without making the database mutation depend on Redis."""
     try:
         channel_layer = get_channel_layer()
         if channel_layer:
             async_to_sync(channel_layer.group_send)(
                 f"user_{user_id}",
-                {
-                    "type": "sync_event",
-                    "event_type": event_type,
-                    "data": data,
-                },
+                {"type": "sync_event", "event_type": event_type, "data": data},
             )
     except Exception:
-        pass
+        logger.warning("Unable to broadcast account update", exc_info=True)
+
+
+@require_GET
+def health_live(_request):
+    return JsonResponse({"status": "ok"})
+
+
+@require_GET
+def health_ready(_request):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            cursor.fetchone()
+        cache_key = "health-ready"
+        cache.set(cache_key, "ok", timeout=5)
+        if cache.get(cache_key) != "ok":
+            raise RuntimeError("Cache health check failed")
+    except Exception:
+        logger.warning("Readiness check failed", exc_info=True)
+        return JsonResponse({"status": "unavailable"}, status=503)
+    return JsonResponse({"status": "ok"})
 
 
 class RegisterView(generics.CreateAPIView):
-    queryset = User.objects.all()
+    queryset = User.objects.none()
     permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "register"
     serializer_class = RegisterSerializer
+
+
+class ThrottledTokenObtainPairView(TokenObtainPairView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "login"
+
+
+class ThrottledTokenRefreshView(TokenRefreshView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "token_refresh"
+
+
+class ThrottledTokenVerifyView(TokenVerifyView):
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "token_verify"
+
+
+class LogoutView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = LogoutSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            token = RefreshToken(serializer.validated_data["refresh"])
+            if str(token.get("user_id")) != str(request.user.id):
+                raise TokenError("Token does not belong to the authenticated account")
+            token.blacklist()
+        except TokenError as exc:
+            raise serializers.ValidationError(
+                {"refresh": "The refresh token is invalid."}
+            ) from exc
+        revoke_access_token(request.auth)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class UserProfileView(generics.RetrieveUpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = UserSerializer
+    http_method_names = ["get", "patch", "head", "options"]
 
     def get_object(self):
         return self.request.user
+
+    def perform_update(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError as exc:
+            raise serializers.ValidationError(
+                {"detail": "That username or email is already in use."}
+            ) from exc
 
 
 class BaseAuthenticatedViewSet(viewsets.ModelViewSet):
@@ -56,18 +155,22 @@ class BaseAuthenticatedViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         instance = serializer.save(owner=self.request.user)
-        broadcast_user_update(
-            self.request.user.id,
-            f"{instance.__class__.__name__.lower()}_created",
-            serializer.data,
+        transaction.on_commit(
+            lambda: broadcast_user_update(
+                self.request.user.id,
+                f"{instance.__class__.__name__.lower()}_created",
+                serializer.data,
+            )
         )
 
     def perform_update(self, serializer):
         instance = serializer.save()
-        broadcast_user_update(
-            self.request.user.id,
-            f"{instance.__class__.__name__.lower()}_updated",
-            serializer.data,
+        transaction.on_commit(
+            lambda: broadcast_user_update(
+                self.request.user.id,
+                f"{instance.__class__.__name__.lower()}_updated",
+                serializer.data,
+            )
         )
 
     def perform_destroy(self, instance):
@@ -75,10 +178,10 @@ class BaseAuthenticatedViewSet(viewsets.ModelViewSet):
         class_name = instance.__class__.__name__.lower()
         user_id = self.request.user.id
         instance.delete()
-        broadcast_user_update(
-            user_id,
-            f"{class_name}_deleted",
-            {"id": instance_id},
+        transaction.on_commit(
+            lambda: broadcast_user_update(
+                user_id, f"{class_name}_deleted", {"id": instance_id}
+            )
         )
 
 
@@ -88,13 +191,13 @@ class CategoryViewSet(BaseAuthenticatedViewSet):
 
 
 class TodoEntryViewSet(BaseAuthenticatedViewSet):
-    queryset = TodoEntry.objects.all()
+    queryset = TodoEntry.objects.select_related("category").all()
     serializer_class = TodoEntrySerializer
 
 
 class TimeSessionViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
-    queryset = TimeSession.objects.all()
+    queryset = TimeSession.objects.select_related("todo").all()
     serializer_class = TimeSessionSerializer
 
     def get_queryset(self):
@@ -108,172 +211,220 @@ class LocationTravelTimeViewSet(BaseAuthenticatedViewSet):
 
 class RepeatRuleViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
-    queryset = RepeatRule.objects.all()
+    queryset = RepeatRule.objects.select_related("todo").all()
     serializer_class = RepeatRuleSerializer
 
     def get_queryset(self):
         return self.queryset.filter(todo__owner=self.request.user)
 
 
-STATUS_MAPPING = {
-    "todo": "pending",
-    "pending": "pending",
-    "in-progress": "in_progress",
-    "in_progress": "in_progress",
-    "done": "completed",
-    "completed": "completed",
-    "skipped": "skipped",
-    "archived": "archived",
-}
+def _value(data: dict, *names: str):
+    for name in names:
+        if name in data:
+            return data[name]
+    return serializers.empty
+
+
+def _copy_aliases(data: dict, aliases: dict[str, tuple[str, ...]]) -> dict:
+    normalized = {}
+    for output_name, input_names in aliases.items():
+        value = _value(data, *input_names)
+        if value is not serializers.empty:
+            normalized[output_name] = value
+    return normalized
+
+
+def _parse_client_uuid(raw_value, item_name: str) -> uuid.UUID:
+    if not raw_value:
+        raise serializers.ValidationError(
+            {"detail": f"Every synced {item_name} requires an id."}
+        )
+    try:
+        return uuid.UUID(str(raw_value))
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise serializers.ValidationError(
+            {"detail": f"A synced {item_name} contains an invalid id."}
+        ) from exc
 
 
 class SyncView(generics.GenericAPIView):
     permission_classes = [permissions.IsAuthenticated]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "sync"
     serializer_class = SyncStateSerializer
 
     def get(self, request):
         user = request.user
-        categories = Category.objects.filter(owner=user)
-        todos = TodoEntry.objects.filter(owner=user)
-        sessions = TimeSession.objects.filter(todo__owner=user)
-        travel_times = LocationTravelTime.objects.filter(owner=user)
+        categories = Category.objects.filter(owner=user).order_by("name", "id")
+        todos = (
+            TodoEntry.objects.filter(owner=user)
+            .select_related("category")
+            .order_by("do_date", "planned_start_time", "sort_order", "id")
+        )
+        sessions = TimeSession.objects.filter(todo__owner=user).order_by("start", "id")
+        travel_times = LocationTravelTime.objects.filter(owner=user).order_by("location_key")
 
+        context = {"request": request}
         return Response(
             {
-                "user": UserSerializer(user).data,
-                "categories": CategorySerializer(categories, many=True).data,
-                "todos": TodoEntrySerializer(todos, many=True).data,
-                "sessions": TimeSessionSerializer(sessions, many=True).data,
-                "travel_times": LocationTravelTimeSerializer(travel_times, many=True).data,
+                "user": UserSerializer(user, context=context).data,
+                "categories": CategorySerializer(categories, many=True, context=context).data,
+                "todos": TodoEntrySerializer(todos, many=True, context=context).data,
+                "sessions": TimeSessionSerializer(sessions, many=True, context=context).data,
+                "travel_times": LocationTravelTimeSerializer(
+                    travel_times, many=True, context=context
+                ).data,
             },
             status=status.HTTP_200_OK,
         )
 
     def post(self, request):
-        user = request.user
         data = request.data
-
-        validation_error = self._validate_sync_payload(data, user)
-        if validation_error:
-            return Response(validation_error, status=status.HTTP_400_BAD_REQUEST)
-
-        # Sync categories
-        for cat_data in data.get("categories", []):
-            cat_id = cat_data.get("id")
-            Category.objects.update_or_create(
-                id=cat_id,
-                owner=user,
-                defaults={
-                    "name": cat_data.get("name", "New Category"),
-                    "color_hex": cat_data.get("color_hex") or cat_data.get("color", "#7c6ff7"),
-                    "icon": cat_data.get("icon", "📁"),
-                    "notes": cat_data.get("notes", ""),
-                },
-            )
-
-        # Sync todos
-        for todo_data in data.get("todos", []):
-            todo_id = todo_data.get("id")
-            cat_id = todo_data.get("category_id") or todo_data.get("category")
-            category_obj = None
-            if cat_id:
-                category_obj = Category.objects.filter(id=cat_id, owner=user).first()
-
-            raw_status = todo_data.get("status", "pending")
-            normalized_status = STATUS_MAPPING.get(raw_status, "pending")
-
-            TodoEntry.objects.update_or_create(
-                id=todo_id,
-                owner=user,
-                defaults={
-                    "title": todo_data.get("title", "Untitled Task"),
-                    "description": todo_data.get("description", ""),
-                    "due_date": todo_data.get("due_date") or todo_data.get("dueDate"),
-                    "due_time": todo_data.get("due_time") or todo_data.get("dueTime"),
-                    "do_date": todo_data.get("do_date") or todo_data.get("doDate"),
-                    "planned_start_time": todo_data.get("planned_start_time") or todo_data.get("plannedStartTime"),
-                    "planned_duration": todo_data.get("planned_duration") or todo_data.get("plannedDuration", 30),
-                    "descriptive_deadline": todo_data.get("descriptive_deadline") or todo_data.get("descriptiveDeadline"),
-                    "category": category_obj,
-                    "status": normalized_status,
-                    "priority": todo_data.get("priority", "medium"),
-                    "location": todo_data.get("location"),
-                    "reminder": todo_data.get("reminder"),
-                    "labels": todo_data.get("labels", []),
-                    "subtasks": todo_data.get("subtasks", []),
-                    "assignee_id": todo_data.get("assignee_id") or todo_data.get("assigneeId"),
-                    "sort_order": todo_data.get("sort_order") or todo_data.get("sortOrder", 0),
-                },
-            )
-
-        # Sync travel times
-        for key, mins in data.get("location_travel_times", {}).items():
-            LocationTravelTime.objects.update_or_create(
-                owner=user,
-                location_key=key,
-                defaults={"duration_minutes": mins},
-            )
-
-        broadcast_user_update(user.id, "full_state_synced", {"synced": True})
-        return self.get(request)
-
-    @staticmethod
-    def _validate_sync_payload(data, user):
         if not isinstance(data, dict):
-            return {"detail": "Sync payload must be an object."}
+            raise serializers.ValidationError({"detail": "Sync payload must be an object."})
 
         categories = data.get("categories", [])
         todos = data.get("todos", [])
         travel_times = data.get("location_travel_times", {})
-
         if not isinstance(categories, list) or not isinstance(todos, list):
-            return {"detail": "categories and todos must be arrays."}
+            raise serializers.ValidationError(
+                {"detail": "categories and todos must be arrays."}
+            )
         if not isinstance(travel_times, dict):
-            return {"detail": "location_travel_times must be an object."}
+            raise serializers.ValidationError(
+                {"detail": "location_travel_times must be an object."}
+            )
+        if len(categories) > MAX_SYNC_CATEGORIES:
+            raise serializers.ValidationError(
+                {"detail": f"At most {MAX_SYNC_CATEGORIES} categories can be synced at once."}
+            )
+        if len(todos) > MAX_SYNC_TODOS:
+            raise serializers.ValidationError(
+                {"detail": f"At most {MAX_SYNC_TODOS} todos can be synced at once."}
+            )
+        if len(travel_times) > MAX_SYNC_TRAVEL_TIMES:
+            raise serializers.ValidationError(
+                {"detail": f"At most {MAX_SYNC_TRAVEL_TIMES} travel times can be synced at once."}
+            )
 
-        payload_category_ids = {
-            str(category.get("id"))
-            for category in categories
-            if isinstance(category, dict) and category.get("id")
+        context = {"request": request}
+        with transaction.atomic():
+            User.objects.select_for_update().get(pk=request.user.pk)
+            self._sync_categories(request.user, categories, context)
+            self._sync_todos(request.user, todos, context)
+            self._sync_travel_times(request.user, travel_times, context)
+
+        transaction.on_commit(
+            lambda: broadcast_user_update(
+                request.user.id, "full_state_synced", {"synced": True}
+            )
+        )
+        return self.get(request)
+
+    @staticmethod
+    def _sync_categories(user, categories, context):
+        aliases = {
+            "name": ("name",),
+            "color_hex": ("color_hex", "color"),
+            "icon": ("icon",),
+            "notes": ("notes",),
         }
+        for category_data in categories:
+            if not isinstance(category_data, dict):
+                raise serializers.ValidationError(
+                    {"detail": "Each category must be an object."}
+                )
+            category_id = _parse_client_uuid(category_data.get("id"), "category")
+            existing = Category.objects.filter(pk=category_id).first()
+            if existing is not None and existing.owner_id != user.id:
+                raise serializers.ValidationError(
+                    {"detail": "A synced object has an unavailable identifier."}
+                )
 
-        try:
-            for category in categories:
-                if not isinstance(category, dict):
-                    return {"detail": "Each category must be an object."}
-                category_id = category.get("id")
-                if category_id and Category.objects.filter(id=category_id).exclude(owner=user).exists():
-                    return {"detail": "A category ID belongs to another account."}
+            payload = _copy_aliases(category_data, aliases)
+            if existing is None:
+                payload.setdefault("name", "New Category")
+            serializer = CategorySerializer(
+                existing,
+                data=payload,
+                partial=existing is not None,
+                context=context,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save(id=category_id, owner=user)
 
-            for todo in todos:
-                if not isinstance(todo, dict):
-                    return {"detail": "Each todo must be an object."}
-                todo_id = todo.get("id")
-                if todo_id and TodoEntry.objects.filter(id=todo_id).exclude(owner=user).exists():
-                    return {"detail": "A todo ID belongs to another account."}
+    @staticmethod
+    def _sync_todos(user, todos, context):
+        aliases = {
+            "title": ("title",),
+            "description": ("description",),
+            "due_date": ("due_date", "dueDate"),
+            "due_time": ("due_time", "dueTime"),
+            "do_date": ("do_date", "doDate"),
+            "planned_start_time": ("planned_start_time", "plannedStartTime"),
+            "original_planned_start_time": (
+                "original_planned_start_time",
+                "originalPlannedStartTime",
+            ),
+            "overdue_from_date": ("overdue_from_date", "overdueFromDate"),
+            "planned_duration": ("planned_duration", "plannedDuration"),
+            "descriptive_deadline": ("descriptive_deadline", "descriptiveDeadline"),
+            "category_id": ("category_id", "category"),
+            "status": ("status",),
+            "priority": ("priority",),
+            "location": ("location",),
+            "reminder": ("reminder",),
+            "labels": ("labels",),
+            "subtasks": ("subtasks",),
+            "assignee_id": ("assignee_id", "assigneeId"),
+            "sort_order": ("sort_order", "sortOrder"),
+            "recurrence_frequency": (
+                "recurrence_frequency",
+                "recurrenceFrequency",
+            ),
+            "recurrence_series_id": (
+                "recurrence_series_id",
+                "recurrenceSeriesId",
+            ),
+            "completed_at": ("completed_at", "completedAt"),
+        }
+        for todo_data in todos:
+            if not isinstance(todo_data, dict):
+                raise serializers.ValidationError(
+                    {"detail": "Each todo must be an object."}
+                )
+            todo_id = _parse_client_uuid(todo_data.get("id"), "todo")
+            existing = TodoEntry.objects.filter(pk=todo_id).first()
+            if existing is not None and existing.owner_id != user.id:
+                raise serializers.ValidationError(
+                    {"detail": "A synced object has an unavailable identifier."}
+                )
 
-                category_id = todo.get("category_id") or todo.get("category")
-                if category_id:
-                    owns_category = Category.objects.filter(id=category_id, owner=user).exists()
-                    if not owns_category and str(category_id) not in payload_category_ids:
-                        return {"detail": "A todo references an unknown category."}
+            payload = _copy_aliases(todo_data, aliases)
+            if "status" in payload:
+                payload["status"] = STATUS_MAPPING.get(payload["status"], payload["status"])
+            if existing is None:
+                payload.setdefault("title", "Untitled Task")
 
-                raw_status = todo.get("status", TodoEntry.Status.PENDING)
-                normalized_status = STATUS_MAPPING.get(raw_status, raw_status)
-                if normalized_status not in TodoEntry.Status.values:
-                    return {"detail": f"Invalid todo status: {raw_status}."}
+            serializer = TodoEntrySerializer(
+                existing,
+                data=payload,
+                partial=existing is not None,
+                context=context,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save(id=todo_id, owner=user)
 
-                priority = todo.get("priority", TodoEntry.Priority.MEDIUM)
-                if priority not in TodoEntry.Priority.values:
-                    return {"detail": f"Invalid todo priority: {priority}."}
-
-                planned_duration = todo.get("planned_duration", todo.get("plannedDuration", 30))
-                if not isinstance(planned_duration, int) or planned_duration < 0:
-                    return {"detail": "planned_duration must be a non-negative integer."}
-        except (DjangoValidationError, TypeError, ValueError):
-            return {"detail": "Sync payload contains an invalid ID."}
-
-        if any(not isinstance(minutes, int) or minutes < 0 for minutes in travel_times.values()):
-            return {"detail": "Travel times must be non-negative integers."}
-
-        return None
+    @staticmethod
+    def _sync_travel_times(user, travel_times, context):
+        for key, duration_minutes in travel_times.items():
+            existing = LocationTravelTime.objects.filter(
+                owner=user, location_key=key
+            ).first()
+            serializer = LocationTravelTimeSerializer(
+                existing,
+                data={"location_key": key, "duration_minutes": duration_minutes},
+                context=context,
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save(owner=user)

@@ -19,9 +19,22 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-The app provides Today, Future, Categories, and Settings tabs. Personal account management lives in Settings. Tasks without a planned time remain simple list items; scheduled tasks appear on the vertical calendar. An overdue task that has not been started is moved below the current-time line until Start is pressed.
+The app provides Today, Future, Categories, and Settings tabs. Categories open into their own focused task lists, while Settings contains both general preferences and weekly reports. Tasks can repeat daily or weekly, and completed tasks stay hidden unless **Show completed tasks** is enabled.
 
-The Debug configuration uses `http://127.0.0.1:8000/api/`. Set the `API_BASE_URL` Xcode build setting when testing on a physical device or against another server.
+Tasks without a planned time remain simple list items; scheduled tasks appear on the vertical calendar. The live current-time line updates every second. Overdue work is rescheduled in the stored task data, while the original planned block remains as a pale trail and timer sessions render as solid actual history in the category color (or black for unplanned work).
+
+The Debug configuration uses `http://127.0.0.1:8000/api/`. Release builds fail closed until the `API_BASE_URL` Xcode build setting is set to the deployed API's public `https://` URL. Cloud credentials are stored in the iOS Keychain; local workspace state is stored with complete file protection in Application Support.
+
+Onboarding and payment are intentionally paused: their source files remain available for later work but are excluded from the application target. The current release opens directly into the core planner.
+
+Run the iOS unit tests after installing an iOS Simulator runtime in Xcode:
+
+```bash
+xcodebuild -project ios/PlanTapDo.xcodeproj \
+  -scheme PlanTapDo \
+  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  test
+```
 
 ## Backend
 
@@ -31,7 +44,8 @@ Python 3.13 or newer is recommended for Django 6.
 cd backend
 python3 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+export DJANGO_ENVIRONMENT=development
 python manage.py migrate
 python manage.py check
 python manage.py test
@@ -46,13 +60,14 @@ source venv/bin/activate
 daphne -b 0.0.0.0 -p 8000 timetodo_api.asgi:application
 ```
 
-Production deployments must set `DJANGO_DEBUG=False`, `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, and `DJANGO_CORS_ALLOWED_ORIGINS`. Redis can be configured with `REDIS_HOST`; local development uses the in-memory channel layer.
+Production configuration is fail-closed: without the required secrets, explicit hosts, PostgreSQL, and Redis, the application refuses to start. Follow [backend/DEPLOYMENT.md](backend/DEPLOYMENT.md) for the release command, reverse-proxy requirements, health checks, key rotation, backups, and security verification.
 
 ## API surface
 
 - `POST /api/auth/register/`
 - `POST /api/auth/token/`
 - `POST /api/auth/token/refresh/`
+- `POST /api/auth/logout/`
 - `GET/PATCH /api/auth/me/`
 - `/api/todos/`
 - `/api/categories/`
@@ -60,6 +75,6 @@ Production deployments must set `DJANGO_DEBUG=False`, `DJANGO_SECRET_KEY`, `DJAN
 - `/api/repeat-rules/`
 - `/api/travel-times/`
 - `GET/POST /api/sync/`
-- `/ws/todos/?token=<access-token>`
+- `/ws/todos/` with `Authorization: Bearer <access-token>` during the WebSocket handshake
 
 All task data is isolated by authenticated personal account.

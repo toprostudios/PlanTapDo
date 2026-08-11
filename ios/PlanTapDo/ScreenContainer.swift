@@ -1,5 +1,111 @@
 // ScreenContainer.swift
 import SwiftUI
+import UIKit
+
+extension View {
+    /// Dismisses the keyboard for taps outside the active text input without
+    /// preventing the tapped control from receiving its normal action.
+    func dismissKeyboardWhenBackgroundTapped() -> some View {
+        background(KeyboardDismissalTapDetector())
+    }
+
+    /// A shared, low-chrome input treatment that feels at home beside the app's
+    /// cards instead of falling back to the dated system bordered-field look.
+    func modernTextInput() -> some View {
+        textFieldStyle(.plain)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+    }
+
+    func modernTextEditor(minHeight: CGFloat = 132) -> some View {
+        scrollContentBackground(.hidden)
+            .padding(9)
+            .frame(minHeight: minHeight)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+            )
+    }
+}
+
+func dismissKeyboard() {
+    UIApplication.shared.sendAction(
+        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+    )
+}
+
+/// A window-level recognizer is needed because `Form`, sheets, and scroll views
+/// often consume SwiftUI tap gestures before a parent view sees them.
+private struct KeyboardDismissalTapDetector: UIViewRepresentable {
+    func makeUIView(context: Context) -> KeyboardDismissalDetectorView {
+        KeyboardDismissalDetectorView()
+    }
+
+    func updateUIView(_ uiView: KeyboardDismissalDetectorView, context: Context) {}
+}
+
+private final class KeyboardDismissalDetectorView: UIView, UIGestureRecognizerDelegate {
+    private var tapRecognizer: UITapGestureRecognizer?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+
+        guard let window, tapRecognizer == nil else { return }
+        let recognizer = UITapGestureRecognizer(target: self, action: #selector(dismissKeyboard))
+        recognizer.cancelsTouchesInView = false
+        recognizer.delaysTouchesBegan = false
+        recognizer.delaysTouchesEnded = false
+        recognizer.delegate = self
+        window.addGestureRecognizer(recognizer)
+        tapRecognizer = recognizer
+    }
+
+    deinit {
+        if let tapRecognizer {
+            tapRecognizer.view?.removeGestureRecognizer(tapRecognizer)
+        }
+    }
+
+    @objc private func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
+        )
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // Let tapping an input focus it normally; any other tap dismisses the
+        // currently focused input, including taps on Form rows and buttons.
+        var view = touch.view
+        while let currentView = view {
+            if currentView is UITextField || currentView is UITextView {
+                return false
+            }
+            view = currentView.superview
+        }
+        return true
+    }
+
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        // This recognizer only observes taps to dismiss the keyboard. Controls
+        // such as Start, Pause, and Save must still receive their own gesture.
+        true
+    }
+}
 
 struct ScreenContainer<Content: View>: View {
     let maxWidth: CGFloat

@@ -22,9 +22,32 @@ struct Category: Identifiable, Codable, Hashable {
 
 struct TimeSession: Identifiable, Codable, Hashable {
     let id: UUID
+    var todoId: UUID?
     let start: Date
-    let end: Date?
-    let duration: TimeInterval? // seconds
+    var end: Date?
+    var duration: TimeInterval? // seconds
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case todoId = "todo"
+        case start
+        case end
+        case duration
+    }
+
+    init(
+        id: UUID,
+        todoId: UUID? = nil,
+        start: Date,
+        end: Date?,
+        duration: TimeInterval?
+    ) {
+        self.id = id
+        self.todoId = todoId
+        self.start = start
+        self.end = end
+        self.duration = duration
+    }
 }
 
 struct Subtask: Identifiable, Codable, Hashable {
@@ -88,6 +111,71 @@ enum TodoStatus: String, Codable {
     case skipped
 }
 
+enum RecurrenceFrequency: String, Codable, CaseIterable, Identifiable {
+    case none
+    case daily
+    case weekly
+    case monthly
+    case custom
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .none: return "Does not repeat"
+        case .daily: return "Every day"
+        case .weekly: return "Every week"
+        case .monthly: return "Every month"
+        case .custom: return "Custom"
+        }
+    }
+}
+
+struct FocusBlock: Identifiable, Codable, Hashable {
+    let id: UUID
+    var name: String
+    var weekdays: Set<Int> // Calendar weekday values, 1 = Sunday
+    var startMinutes: Int
+    var endMinutes: Int
+    var categoryId: UUID?
+    /// Empty means every category is pushed. Otherwise only these categories may stay in focus time.
+    var allowedCategoryIds: Set<UUID> = []
+
+    init(id: UUID = UUID(), name: String = "Focus time", weekdays: Set<Int>, startMinutes: Int, endMinutes: Int, categoryId: UUID? = nil) {
+        self.id = id
+        self.name = name
+        self.weekdays = weekdays
+        self.startMinutes = startMinutes
+        self.endMinutes = endMinutes
+        self.categoryId = categoryId
+    }
+
+    init(id: UUID = UUID(), name: String = "Focus time", weekdays: Set<Int>, startMinutes: Int, endMinutes: Int, allowedCategoryIds: Set<UUID>) {
+        self.id = id
+        self.name = name
+        self.weekdays = weekdays
+        self.startMinutes = startMinutes
+        self.endMinutes = endMinutes
+        self.categoryId = nil
+        self.allowedCategoryIds = allowedCategoryIds
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, weekdays, startMinutes, endMinutes, categoryId, allowedCategoryIds
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? "Focus time"
+        weekdays = try container.decode(Set<Int>.self, forKey: .weekdays)
+        startMinutes = try container.decode(Int.self, forKey: .startMinutes)
+        endMinutes = try container.decode(Int.self, forKey: .endMinutes)
+        categoryId = try container.decodeIfPresent(UUID.self, forKey: .categoryId)
+        allowedCategoryIds = try container.decodeIfPresent(Set<UUID>.self, forKey: .allowedCategoryIds) ?? []
+    }
+}
+
 struct TodoEntry: Identifiable, Codable, Hashable {
     let id: UUID
     var title: String
@@ -97,6 +185,9 @@ struct TodoEntry: Identifiable, Codable, Hashable {
     var dueTime: String?         // HH:MM (e.g. "18:00")
     var descriptiveDeadline: String? // Descriptive deadline note (no effect on calendar position)
     var plannedStartTime: String? // HH:MM (e.g. "09:30")
+    var originalPlannedStartTime: String? // Retained when the live schedule is pushed or dragged
+    /// The day this task was scheduled for before it was carried into a later day.
+    var overdueFromDate: Date?
     var plannedDuration: TimeInterval // seconds (e.g. 1800 for 30m)
     var categoryId: UUID?
     var status: TodoStatus
@@ -107,6 +198,10 @@ struct TodoEntry: Identifiable, Codable, Hashable {
     var timeSessions: [TimeSession]?
     var subtasks: [Subtask]?
     var assigneeId: String?
+    var recurrenceFrequency: RecurrenceFrequency
+    var recurrenceWeekdays: [Int]?
+    var recurrenceSeriesId: UUID?
+    var completedAt: Date?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -117,6 +212,8 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         case dueTime
         case descriptiveDeadline
         case plannedStartTime
+        case originalPlannedStartTime
+        case overdueFromDate
         case plannedDuration
         case categoryId
         case status
@@ -126,6 +223,10 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         case labels
         case subtasks
         case assigneeId
+        case recurrenceFrequency
+        case recurrenceWeekdays
+        case recurrenceSeriesId
+        case completedAt
     }
 
     init(
@@ -146,7 +247,13 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         labels: [String]?,
         timeSessions: [TimeSession]?,
         subtasks: [Subtask]?,
-        assigneeId: String?
+        assigneeId: String?,
+        originalPlannedStartTime: String? = nil,
+        overdueFromDate: Date? = nil,
+        recurrenceFrequency: RecurrenceFrequency = .none,
+        recurrenceWeekdays: [Int]? = nil,
+        recurrenceSeriesId: UUID? = nil,
+        completedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -156,6 +263,8 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         self.dueTime = dueTime
         self.descriptiveDeadline = descriptiveDeadline
         self.plannedStartTime = plannedStartTime
+        self.originalPlannedStartTime = originalPlannedStartTime ?? plannedStartTime
+        self.overdueFromDate = overdueFromDate
         self.plannedDuration = plannedDuration
         self.categoryId = categoryId
         self.status = status
@@ -166,6 +275,10 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         self.timeSessions = timeSessions
         self.subtasks = subtasks
         self.assigneeId = assigneeId
+        self.recurrenceFrequency = recurrenceFrequency
+        self.recurrenceWeekdays = recurrenceWeekdays
+        self.recurrenceSeriesId = recurrenceSeriesId
+        self.completedAt = completedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -179,6 +292,9 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         dueTime = try container.decodeIfPresent(String.self, forKey: .dueTime)
         descriptiveDeadline = try container.decodeIfPresent(String.self, forKey: .descriptiveDeadline)
         plannedStartTime = try container.decodeIfPresent(String.self, forKey: .plannedStartTime)
+        originalPlannedStartTime = try container.decodeIfPresent(String.self, forKey: .originalPlannedStartTime)
+            ?? plannedStartTime
+        overdueFromDate = Self.decodeDate(from: container, forKey: .overdueFromDate)
 
         let durationMinutes = try container.decodeIfPresent(Double.self, forKey: .plannedDuration) ?? 30
         plannedDuration = durationMinutes * 60
@@ -192,6 +308,10 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         timeSessions = nil
         subtasks = try container.decodeIfPresent([Subtask].self, forKey: .subtasks)
         assigneeId = try container.decodeIfPresent(String.self, forKey: .assigneeId)
+        recurrenceFrequency = try container.decodeIfPresent(RecurrenceFrequency.self, forKey: .recurrenceFrequency) ?? .none
+        recurrenceWeekdays = try container.decodeIfPresent([Int].self, forKey: .recurrenceWeekdays)
+        recurrenceSeriesId = try container.decodeIfPresent(UUID.self, forKey: .recurrenceSeriesId)
+        completedAt = Self.decodeDate(from: container, forKey: .completedAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -208,6 +328,12 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         try container.encode(dueTime, forKey: .dueTime)
         try container.encode(descriptiveDeadline, forKey: .descriptiveDeadline)
         try container.encode(plannedStartTime, forKey: .plannedStartTime)
+        try container.encode(originalPlannedStartTime, forKey: .originalPlannedStartTime)
+        if let overdueFromDate {
+            try container.encode(Self.apiDateFormatter.string(from: overdueFromDate), forKey: .overdueFromDate)
+        } else {
+            try container.encodeNil(forKey: .overdueFromDate)
+        }
         try container.encode(max(0, Int((plannedDuration / 60).rounded())), forKey: .plannedDuration)
         try container.encode(categoryId, forKey: .categoryId)
         try container.encode(status, forKey: .status)
@@ -217,6 +343,14 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         try container.encodeIfPresent(labels, forKey: .labels)
         try container.encodeIfPresent(subtasks, forKey: .subtasks)
         try container.encode(assigneeId, forKey: .assigneeId)
+        try container.encode(recurrenceFrequency, forKey: .recurrenceFrequency)
+        try container.encodeIfPresent(recurrenceWeekdays, forKey: .recurrenceWeekdays)
+        try container.encode(recurrenceSeriesId, forKey: .recurrenceSeriesId)
+        if let completedAt {
+            try container.encode(Self.apiDateTimeFormatter.string(from: completedAt), forKey: .completedAt)
+        } else {
+            try container.encodeNil(forKey: .completedAt)
+        }
     }
 
     private static let apiDateFormatter: DateFormatter = {
