@@ -205,6 +205,36 @@ class TimeSessionViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return self.queryset.filter(todo__owner=self.request.user)
 
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        payload = serializer.data
+        user_id = self.request.user.id
+        transaction.on_commit(
+            lambda uid=user_id, evt="timesession_created", p=payload: broadcast_user_update(
+                uid, evt, p
+            )
+        )
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        payload = serializer.data
+        user_id = self.request.user.id
+        transaction.on_commit(
+            lambda uid=user_id, evt="timesession_updated", p=payload: broadcast_user_update(
+                uid, evt, p
+            )
+        )
+
+    def perform_destroy(self, instance):
+        instance_id = str(instance.id)
+        user_id = self.request.user.id
+        instance.delete()
+        transaction.on_commit(
+            lambda uid=user_id, evt="timesession_deleted", p={"id": instance_id}: broadcast_user_update(
+                uid, evt, p
+            )
+        )
+
 
 class LocationTravelTimeViewSet(BaseAuthenticatedViewSet):
     queryset = LocationTravelTime.objects.all()
@@ -218,6 +248,36 @@ class RepeatRuleViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return self.queryset.filter(todo__owner=self.request.user)
+
+    def perform_create(self, serializer):
+        instance = serializer.save()
+        payload = serializer.data
+        user_id = self.request.user.id
+        transaction.on_commit(
+            lambda uid=user_id, evt="repeatrule_created", p=payload: broadcast_user_update(
+                uid, evt, p
+            )
+        )
+
+    def perform_update(self, serializer):
+        instance = serializer.save()
+        payload = serializer.data
+        user_id = self.request.user.id
+        transaction.on_commit(
+            lambda uid=user_id, evt="repeatrule_updated", p=payload: broadcast_user_update(
+                uid, evt, p
+            )
+        )
+
+    def perform_destroy(self, instance):
+        instance_id = str(instance.id)
+        user_id = self.request.user.id
+        instance.delete()
+        transaction.on_commit(
+            lambda uid=user_id, evt="repeatrule_deleted", p={"id": instance_id}: broadcast_user_update(
+                uid, evt, p
+            )
+        )
 
 
 def _value(data: dict, *names: str):

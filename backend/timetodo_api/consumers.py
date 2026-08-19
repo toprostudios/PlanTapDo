@@ -40,12 +40,16 @@ class TodoConsumer(AsyncWebsocketConsumer):
 
         validated_token = self.scope.get("access_token")
         while True:
-            expires_at = validated_token.get("exp", 0) if validated_token else 0
-            until_expiry = max(0, expires_at - int(time.time()))
-            await asyncio.sleep(min(30, until_expiry))
-            if not await socket_token_is_active(validated_token):
-                await self.close(code=4401)
-                return
+            try:
+                expires_at = validated_token.get("exp", 0) if validated_token else 0
+                until_expiry = expires_at - int(time.time())
+                sleep_duration = max(1, min(30, until_expiry)) if until_expiry > 0 else 1
+                await asyncio.sleep(sleep_duration)
+                if not await socket_token_is_active(validated_token):
+                    await self.close(code=4401)
+                    return
+            except asyncio.CancelledError:
+                break
 
     async def receive(self, text_data=None, bytes_data=None):
         # This channel is server-to-client only. Mutations must pass through the
