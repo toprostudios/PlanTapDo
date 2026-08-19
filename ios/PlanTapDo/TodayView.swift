@@ -212,6 +212,7 @@ struct TaskDetailView: View {
     @State private var categoryId: UUID?
     @State private var recurrenceFrequency: RecurrenceFrequency
     @State private var recurrenceWeekdays: Set<Int>
+    @State private var showingDeleteConfirmation = false
 
     init(todo: TodoEntry, viewModel: TodoViewModel) {
         self.todo = todo
@@ -288,9 +289,33 @@ struct TaskDetailView: View {
                         }
                     }
                 }
+
+                Section {
+                    Button(role: .destructive) {
+                        showingDeleteConfirmation = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Label("Delete Task", systemImage: "trash")
+                                .foregroundStyle(.red)
+                            Spacer()
+                        }
+                    }
+                }
             }
             .navigationTitle("Task Details")
             .navigationBarTitleDisplayMode(.inline)
+            .confirmationDialog(
+                "Delete \"\(todo.title)\"?",
+                isPresented: $showingDeleteConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Delete Task", role: .destructive) {
+                    viewModel.deleteTodo(id: todo.id)
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

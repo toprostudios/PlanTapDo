@@ -155,21 +155,23 @@ class BaseAuthenticatedViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         instance = serializer.save(owner=self.request.user)
+        payload = serializer.data
+        user_id = self.request.user.id
+        event_type = f"{instance.__class__.__name__.lower()}_created"
         transaction.on_commit(
-            lambda: broadcast_user_update(
-                self.request.user.id,
-                f"{instance.__class__.__name__.lower()}_created",
-                serializer.data,
+            lambda uid=user_id, evt=event_type, p=payload: broadcast_user_update(
+                uid, evt, p
             )
         )
 
     def perform_update(self, serializer):
         instance = serializer.save()
+        payload = serializer.data
+        user_id = self.request.user.id
+        event_type = f"{instance.__class__.__name__.lower()}_updated"
         transaction.on_commit(
-            lambda: broadcast_user_update(
-                self.request.user.id,
-                f"{instance.__class__.__name__.lower()}_updated",
-                serializer.data,
+            lambda uid=user_id, evt=event_type, p=payload: broadcast_user_update(
+                uid, evt, p
             )
         )
 
@@ -179,8 +181,8 @@ class BaseAuthenticatedViewSet(viewsets.ModelViewSet):
         user_id = self.request.user.id
         instance.delete()
         transaction.on_commit(
-            lambda: broadcast_user_update(
-                user_id, f"{class_name}_deleted", {"id": instance_id}
+            lambda uid=user_id, evt=f"{class_name}_deleted", p={"id": instance_id}: broadcast_user_update(
+                uid, evt, p
             )
         )
 
@@ -351,7 +353,10 @@ class SyncView(generics.GenericAPIView):
                 context=context,
             )
             serializer.is_valid(raise_exception=True)
-            serializer.save(id=category_id, owner=user)
+            if existing is None:
+                serializer.save(id=category_id, owner=user)
+            else:
+                serializer.save(owner=user)
 
     @staticmethod
     def _sync_todos(user, todos, context):
@@ -417,7 +422,10 @@ class SyncView(generics.GenericAPIView):
                 context=context,
             )
             serializer.is_valid(raise_exception=True)
-            serializer.save(id=todo_id, owner=user)
+            if existing is None:
+                serializer.save(id=todo_id, owner=user)
+            else:
+                serializer.save(owner=user)
 
     @staticmethod
     def _sync_travel_times(user, travel_times, context):

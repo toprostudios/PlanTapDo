@@ -98,6 +98,9 @@ struct FutureView: View {
         HStack(spacing: 6) {
             Button {
                 viewModel.currentWeekOffset -= 1
+                if let newDate = Calendar.current.date(byAdding: .day, value: -7, to: viewModel.selectedFutureDate) {
+                    viewModel.selectedFutureDate = newDate
+                }
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.caption.weight(.bold))
@@ -133,6 +136,9 @@ struct FutureView: View {
 
             Button {
                 viewModel.currentWeekOffset += 1
+                if let newDate = Calendar.current.date(byAdding: .day, value: 7, to: viewModel.selectedFutureDate) {
+                    viewModel.selectedFutureDate = newDate
+                }
             } label: {
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))

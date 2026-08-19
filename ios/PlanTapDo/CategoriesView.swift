@@ -246,6 +246,8 @@ private struct CategoryTaskComposerView: View {
     @State private var title = ""
     @State private var description = ""
     @State private var scheduledDate = Date()
+    @State private var hasPlannedTime = false
+    @State private var plannedTime = Date()
     @State private var durationMinutes = 30
     @State private var recurrence: RecurrenceFrequency = .none
     @State private var selectedWeekdays = Set<Int>()
@@ -261,24 +263,23 @@ private struct CategoryTaskComposerView: View {
                         .modernTextInput()
                 }
 
-                Section("When") {
-                    DatePicker(
-                        "Date and time",
-                        selection: $scheduledDate,
-                        displayedComponents: [.date, .hourAndMinute]
-                    )
-                    .datePickerStyle(.compact)
+                Section("Schedule") {
+                    DatePicker("Day", selection: $scheduledDate, displayedComponents: .date)
+                    Toggle("Set a time", isOn: $hasPlannedTime)
 
-                    HStack {
-                        Text("Duration")
-                        Spacer()
-                        Picker("Duration", selection: $durationMinutes) {
-                            ForEach([15, 30, 45, 60, 90, 120], id: \.self) { minutes in
-                                Text(minutes < 60 ? "\(minutes) min" : "\(Double(minutes) / 60, specifier: "%.1g") hr")
-                                    .tag(minutes)
+                    if hasPlannedTime {
+                        DatePicker("Start", selection: $plannedTime, displayedComponents: .hourAndMinute)
+                        HStack {
+                            Text("Duration")
+                            Spacer()
+                            Picker("Duration", selection: $durationMinutes) {
+                                ForEach([15, 30, 45, 60, 90, 120], id: \.self) { minutes in
+                                    Text(minutes < 60 ? "\(minutes) min" : "\(Double(minutes) / 60, specifier: "%.1g") hr")
+                                        .tag(minutes)
+                                }
                             }
+                            .pickerStyle(.menu)
                         }
-                        .pickerStyle(.menu)
                     }
                 }
 
@@ -316,7 +317,7 @@ private struct CategoryTaskComposerView: View {
             description: description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : description,
             doDate: scheduledDate,
             dueDate: nil,
-            plannedStartTime: TodoEntry.apiTimeString(from: scheduledDate),
+            plannedStartTime: hasPlannedTime ? TodoEntry.apiTimeString(from: plannedTime) : nil,
             plannedDuration: TimeInterval(durationMinutes * 60),
             categoryId: categoryId,
             recurrenceFrequency: recurrence,
