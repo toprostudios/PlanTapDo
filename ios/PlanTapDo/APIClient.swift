@@ -26,6 +26,12 @@ final class APIClient {
         let categories: [Category]
         let todos: [TodoEntry]
         let sessions: [TimeSession]
+        let travelTimes: [TravelTimeResponse]?
+    }
+
+    struct TravelTimeResponse: Decodable {
+        let locationKey: String
+        let durationMinutes: Int
     }
 
     var onTokensChanged: ((AuthTokens?) -> Void)?
@@ -118,6 +124,14 @@ final class APIClient {
         request("sync/")
     }
 
+    func syncTravelTimes(_ travelTimes: [String: Int]) -> AnyPublisher<SyncStateResponse, Error> {
+        encodedRequest(
+            "sync/",
+            method: "POST",
+            payload: TravelTimeSyncPayload(locationTravelTimes: travelTimes)
+        )
+    }
+
     func logout() -> AnyPublisher<Void, Error> {
         guard let refreshToken = sessionSnapshot()?.refresh else {
             return Just(()).setFailureType(to: Error.self).eraseToAnyPublisher()
@@ -176,6 +190,10 @@ final class APIClient {
 
     func createCategory(_ category: Category) -> AnyPublisher<Category, Error> {
         encodedRequest("categories/", method: "POST", payload: category)
+    }
+
+    func updateCategory(_ category: Category) -> AnyPublisher<Category, Error> {
+        encodedRequest("categories/\(category.id)/", method: "PUT", payload: category)
     }
 
     func deleteCategory(id: UUID) -> AnyPublisher<Void, Error> {
@@ -245,8 +263,8 @@ final class APIClient {
     }
 
     private func makeRequest(endpoint: String, method: String, body: Data?) -> URLRequest? {
-        guard let baseURL else { return nil }
-        var request = URLRequest(url: baseURL.appendingPathComponent(endpoint))
+        guard let url = resolvedURL(for: endpoint) else { return nil }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let accessToken = sessionSnapshot()?.access {
@@ -257,6 +275,17 @@ final class APIClient {
         return request
     }
 
+    private func resolvedURL(for endpoint: String) -> URL? {
+        guard let baseURL else { return nil }
+        let baseString = baseURL.absoluteString.hasSuffix("/")
+            ? baseURL.absoluteString
+            : baseURL.absoluteString + "/"
+        let cleanEndpoint = endpoint.hasPrefix("/")
+            ? String(endpoint.dropFirst())
+            : endpoint
+        return URL(string: cleanEndpoint, relativeTo: URL(string: baseString))?.absoluteURL
+    }
+
     private func refreshSession() -> AnyPublisher<AuthTokens, Error> {
         sessionLock.lock()
         if let inFlightRefresh {
@@ -264,12 +293,12 @@ final class APIClient {
             return inFlightRefresh
         }
         guard let currentTokens = tokens,
-              let baseURL else {
+              let url = resolvedURL(for: "auth/token/refresh/") else {
             sessionLock.unlock()
             return Fail(error: APIError.configuration).eraseToAnyPublisher()
         }
 
-        var request = URLRequest(url: baseURL.appendingPathComponent("auth/token/refresh/"))
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try? JSONEncoder().encode(["refresh": currentTokens.refresh])
@@ -328,13 +357,52 @@ final class APIClient {
             throw URLError(.badServerResponse)
         }
         guard (200..<300).contains(response.statusCode) else {
-            let message = (try? JSONSerialization.jsonObject(with: output.data) as? [String: Any])
-                .flatMap { $0["detail"] as? String }
-                ?? HTTPURLResponse.localizedString(forStatusCode: response.statusCode)
+            let message = serverMessage(from: output.data, statusCode: response.statusCode)
             throw APIError(statusCode: response.statusCode, message: message)
         }
         return output.data
     }
+
+    static func serverMessage(from data: Data, statusCode: Int) -> String {
+        let fallback = HTTPURLResponse.localizedString(forStatusCode: statusCode)
+        guard data.count <= 64 * 1024,
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let message = message(from: object),
+              !message.isEmpty else {
+            return fallback
+        }
+        return String(message.prefix(600))
+    }
+
+    private static func message(from object: Any) -> String? {
+        if let message = object as? String {
+            return message.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let messages = object as? [Any] {
+            let values = messages.compactMap(message(from:)).filter { !$0.isEmpty }
+            return values.isEmpty ? nil : values.joined(separator: " ")
+        }
+        if let fields = object as? [String: Any] {
+            if let detail = fields["detail"], let detailMessage = message(from: detail) {
+                return detailMessage
+            }
+            let values = fields.keys.sorted().compactMap { key -> String? in
+                guard let value = fields[key],
+                      let fieldMessage = message(from: value),
+                      !fieldMessage.isEmpty else { return nil }
+                let label = key == "non_field_errors"
+                    ? "Error"
+                    : key.replacingOccurrences(of: "_", with: " ").capitalized
+                return "\(label): \(fieldMessage)"
+            }
+            return values.isEmpty ? nil : values.joined(separator: " ")
+        }
+        return nil
+    }
+}
+
+private struct TravelTimeSyncPayload: Encodable {
+    let locationTravelTimes: [String: Int]
 }
 
 private struct RefreshResponse: Decodable {

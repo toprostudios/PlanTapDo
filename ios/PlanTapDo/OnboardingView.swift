@@ -128,15 +128,23 @@ struct SubscriptionOfferView: View {
             .padding(.horizontal, 24)
             .disabled(subscriptionManager.isLoading)
 
-            Button("Restore Purchase") {
-                Task {
-                    await subscriptionManager.restorePurchases()
-                    if subscriptionManager.hasActiveSubscription { onSubscribed() }
+            HStack(spacing: 24) {
+                Button("Restore Purchase") {
+                    Task {
+                        await subscriptionManager.restorePurchases()
+                        if subscriptionManager.hasActiveSubscription { onSubscribed() }
+                    }
                 }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.82))
+                .disabled(subscriptionManager.isLoading)
+
+                Button("Skip for now") {
+                    onSubscribed()
+                }
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.82))
             }
-            .font(.footnote.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.82))
-            .disabled(subscriptionManager.isLoading)
             Spacer()
         }
     }

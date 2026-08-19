@@ -382,6 +382,10 @@ class SyncView(generics.GenericAPIView):
                 "recurrence_frequency",
                 "recurrenceFrequency",
             ),
+            "recurrence_weekdays": (
+                "recurrence_weekdays",
+                "recurrenceWeekdays",
+            ),
             "recurrence_series_id": (
                 "recurrence_series_id",
                 "recurrenceSeriesId",

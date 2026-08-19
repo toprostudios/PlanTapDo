@@ -211,6 +211,7 @@ struct TaskDetailView: View {
     @State private var durationMinutes: Int
     @State private var categoryId: UUID?
     @State private var recurrenceFrequency: RecurrenceFrequency
+    @State private var recurrenceWeekdays: Set<Int>
 
     init(todo: TodoEntry, viewModel: TodoViewModel) {
         self.todo = todo
@@ -223,6 +224,7 @@ struct TaskDetailView: View {
         _durationMinutes = State(initialValue: max(15, Int(todo.plannedDuration / 60)))
         _categoryId = State(initialValue: todo.categoryId)
         _recurrenceFrequency = State(initialValue: todo.recurrenceFrequency)
+        _recurrenceWeekdays = State(initialValue: Set(todo.recurrenceWeekdays ?? []))
     }
 
     var body: some View {
@@ -272,6 +274,9 @@ struct TaskDetailView: View {
                             Text(frequency.label).tag(frequency)
                         }
                     }
+                    if recurrenceFrequency == .custom {
+                        WeekdaySelector(selectedWeekdays: $recurrenceWeekdays)
+                    }
                 }
 
                 Section("Organization") {
@@ -307,13 +312,18 @@ struct TaskDetailView: View {
         let trimmedDescription = description.trimmingCharacters(in: .whitespacesAndNewlines)
         updatedTodo.description = trimmedDescription.isEmpty ? nil : trimmedDescription
         updatedTodo.doDate = doDate
-        updatedTodo.plannedStartTime = hasPlannedTime ? plannedTime.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) : nil
-        if updatedTodo.originalPlannedStartTime == nil {
-            updatedTodo.originalPlannedStartTime = updatedTodo.plannedStartTime
-        }
+        updatedTodo.plannedStartTime = hasPlannedTime ? TodoEntry.apiTimeString(from: plannedTime) : nil
         updatedTodo.plannedDuration = TimeInterval(durationMinutes * 60)
         updatedTodo.categoryId = categoryId
         updatedTodo.recurrenceFrequency = recurrenceFrequency
+        if recurrenceFrequency == .custom {
+            let fallbackWeekday = Calendar.autoupdatingCurrent.component(.weekday, from: doDate)
+            updatedTodo.recurrenceWeekdays = Array(
+                recurrenceWeekdays.isEmpty ? [fallbackWeekday] : recurrenceWeekdays
+            ).sorted()
+        } else {
+            updatedTodo.recurrenceWeekdays = nil
+        }
         if recurrenceFrequency == .none {
             updatedTodo.recurrenceSeriesId = nil
         }

@@ -18,7 +18,14 @@
         "initProcessEnabled": true,
         "capabilities": {
           "drop": ["ALL"]
-        }
+        },
+        "tmpfs": [
+          {
+            "containerPath": "/tmp",
+            "size": 128,
+            "mountOptions": ["noexec", "nosuid", "nodev"]
+          }
+        ]
       },
       "portMappings": [
         {

@@ -44,7 +44,8 @@ struct ContentView: View {
                 for: .navigationBar
             )
             .accentColor(.indigo)
-            .preferredColorScheme(viewModel.theme == .dark ? .dark : (viewModel.theme == .light ? .light : nil))
+            .preferredColorScheme(viewModel.theme.preferredColorScheme)
+            .contrast(viewModel.theme.contrastAmount)
             .dismissKeyboardWhenBackgroundTapped()
             .onAppear {
                 viewModel.fetchTodos()

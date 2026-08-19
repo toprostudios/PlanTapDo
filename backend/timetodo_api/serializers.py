@@ -199,6 +199,12 @@ class TodoEntrySerializer(serializers.ModelSerializer):
     )
     labels = serializers.ListField(required=False, allow_empty=True, max_length=MAX_LABELS)
     subtasks = serializers.ListField(required=False, allow_empty=True, max_length=MAX_SUBTASKS)
+    recurrence_weekdays = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=7),
+        required=False,
+        allow_empty=True,
+        max_length=7,
+    )
     sort_order = serializers.IntegerField(min_value=-1_000_000, max_value=1_000_000, required=False)
 
     class Meta:
@@ -227,6 +233,7 @@ class TodoEntrySerializer(serializers.ModelSerializer):
             "sort_order",
             "completed_at",
             "recurrence_frequency",
+            "recurrence_weekdays",
             "recurrence_series_id",
             "owner",
             "created_at",
@@ -280,6 +287,29 @@ class TodoEntrySerializer(serializers.ModelSerializer):
                 {"id": subtask_id, "title": title.strip(), "completed": completed}
             )
         return normalized
+
+    def validate_recurrence_weekdays(self, value):
+        if len(set(value)) != len(value):
+            raise serializers.ValidationError("Repeat weekdays must be unique.")
+        return sorted(value)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        frequency = attrs.get(
+            "recurrence_frequency",
+            getattr(self.instance, "recurrence_frequency", TodoEntry.Recurrence.NONE),
+        )
+        weekdays = attrs.get(
+            "recurrence_weekdays",
+            getattr(self.instance, "recurrence_weekdays", []),
+        )
+        if frequency == TodoEntry.Recurrence.CUSTOM and not weekdays:
+            raise serializers.ValidationError(
+                {"recurrence_weekdays": "Choose at least one weekday for a custom repeat."}
+            )
+        if frequency != TodoEntry.Recurrence.CUSTOM:
+            attrs["recurrence_weekdays"] = []
+        return attrs
 
 
 class OwnedTodoFieldMixin:

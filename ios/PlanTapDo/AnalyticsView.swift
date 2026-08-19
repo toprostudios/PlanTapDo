@@ -19,7 +19,7 @@ struct AnalyticsView: View {
     }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
                     // Metrics Grid Cards
@@ -70,7 +70,7 @@ struct AnalyticsView: View {
                 }
                 .padding(.vertical)
             }
-            .navigationTitle("📊 Toggl Time Analytics")
+            .navigationTitle("📊 Time Analytics")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

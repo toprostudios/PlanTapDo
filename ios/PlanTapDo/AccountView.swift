@@ -135,8 +135,8 @@ struct AccountView: View {
                                 SecureField("Password", text: $newPassword)
                                     .modernTextInput()
 
-                                if !newPassword.isEmpty && newPassword.count < 8 {
-                                    Text("Use at least 8 characters.")
+                                if authMode == .create && !newPassword.isEmpty && newPassword.count < 15 {
+                                    Text("Use at least 15 characters.")
                                         .font(.caption)
                                         .foregroundStyle(.secondary)
                                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -171,7 +171,7 @@ struct AccountView: View {
                                 .disabled(
                                     viewModel.isLoading
                                         || newUsername.isEmpty
-                                        || newPassword.count < 8
+                                        || (authMode == .create ? newPassword.count < 15 : newPassword.isEmpty)
                                         || (authMode == .create && newEmail.isEmpty)
                                 )
                             }

@@ -90,6 +90,8 @@ struct CalendarHourlyGrid: View {
             (calendar.isDate($0.doDate, inSameDayAs: targetDate)
                 || ($0.overdueFromDate.map { calendar.isDate($0, inSameDayAs: targetDate) } ?? false))
                 && $0.plannedStartTime?.isEmpty == false
+                && $0.originalPlannedStartTime != nil
+                && $0.originalPlannedStartTime != $0.plannedStartTime
         }
     }
 
@@ -418,6 +420,12 @@ struct CalendarHourlyGrid: View {
                                                         draggingTodoId = nil
                                                         dragYTranslation = 0
                                                         updateTimeForTodo(todo, verticalOffset: offset)
+                                                    },
+                                                    onDragCancelled: {
+                                                        // A cancelled gesture has no valid drop. Restore the card
+                                                        // at its stored position instead of leaving its visual offset.
+                                                        draggingTodoId = nil
+                                                        dragYTranslation = 0
                                                     }
                                                 )
                                                 .zIndex(2)
@@ -529,7 +537,16 @@ struct CalendarHourlyGrid: View {
         let originalTotalMin = originalH * 60.0 + originalM
 
         let deltaMinutes = Double(verticalOffset / pointsPerMinute)
-        let newTotalMin = max(7.0 * 60.0, min(22.0 * 60.0, originalTotalMin + deltaMinutes))
+        let proposedTotalMin = originalTotalMin + deltaMinutes
+
+        // Releasing outside the visible calendar is not a schedule change. In
+        // particular, this keeps a card from appearing to disappear after an
+        // incomplete drag beyond the top or bottom edge.
+        guard proposedTotalMin >= 7.0 * 60.0, proposedTotalMin <= 22.0 * 60.0 else {
+            return
+        }
+
+        let newTotalMin = proposedTotalMin
         var snappedMin = Int((newTotalMin / 15.0).rounded()) * 15
 
         // A pending task may not be dragged into the past. Keeping it at the current
@@ -550,9 +567,6 @@ struct CalendarHourlyGrid: View {
         let formattedTime = String(format: "%02d:%02d", hour, min)
 
         var updated = todo
-        if updated.originalPlannedStartTime == nil {
-            updated.originalPlannedStartTime = originalTimeStr
-        }
         updated.doDate = todo.doDate
         updated.plannedStartTime = formattedTime
         viewModel.updateTodo(updated)
@@ -693,7 +707,7 @@ struct TaskComposerView: View {
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             description: notes.isEmpty ? nil : notes,
             doDate: startDate,
-            plannedStartTime: showsSchedule ? startDate.formatted(.dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)) : nil,
+            plannedStartTime: showsSchedule ? TodoEntry.apiTimeString(from: startDate) : nil,
             plannedDuration: TimeInterval(duration * 60),
             categoryId: categoryId
         )
@@ -715,6 +729,8 @@ struct CalendarCardView: View {
     let onOpen: () -> Void
     let onDragChanged: (CGFloat) -> Void
     let onDragEnded: (CGFloat) -> Void
+    let onDragCancelled: () -> Void
+    @GestureState private var isDragActive = false
 
     private var catColor: Color {
         Color(hex: cat?.colorHex ?? "7C6FF7")
@@ -811,6 +827,9 @@ struct CalendarCardView: View {
         .animation(.linear(duration: 0.2), value: metrics.top)
         .gesture(
             DragGesture()
+                .updating($isDragActive) { _, state, _ in
+                    state = true
+                }
                 .onChanged { value in
                     onDragChanged(value.translation.height)
                 }
@@ -818,5 +837,13 @@ struct CalendarCardView: View {
                     onDragEnded(value.translation.height)
                 }
         )
+        .onChange(of: isDragActive) { isActive in
+            // GestureState resets to false both after a normal end and when the
+            // parent scroll view cancels the drag. This cleanup is intentionally
+            // save-free, so only onEnded can move a task.
+            if !isActive {
+                onDragCancelled()
+            }
+        }
     }
 }

@@ -185,7 +185,9 @@ struct TodoEntry: Identifiable, Codable, Hashable {
     var dueTime: String?         // HH:MM (e.g. "18:00")
     var descriptiveDeadline: String? // Descriptive deadline note (no effect on calendar position)
     var plannedStartTime: String? // HH:MM (e.g. "09:30")
-    var originalPlannedStartTime: String? // Retained when the live schedule is pushed or dragged
+    /// The time that elapsed before this task was automatically pushed. This is
+    /// calendar history, not the task's initially selected schedule.
+    var originalPlannedStartTime: String?
     /// The day this task was scheduled for before it was carried into a later day.
     var overdueFromDate: Date?
     var plannedDuration: TimeInterval // seconds (e.g. 1800 for 30m)
@@ -263,7 +265,7 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         self.dueTime = dueTime
         self.descriptiveDeadline = descriptiveDeadline
         self.plannedStartTime = plannedStartTime
-        self.originalPlannedStartTime = originalPlannedStartTime ?? plannedStartTime
+        self.originalPlannedStartTime = originalPlannedStartTime
         self.overdueFromDate = overdueFromDate
         self.plannedDuration = plannedDuration
         self.categoryId = categoryId
@@ -293,7 +295,6 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         descriptiveDeadline = try container.decodeIfPresent(String.self, forKey: .descriptiveDeadline)
         plannedStartTime = try container.decodeIfPresent(String.self, forKey: .plannedStartTime)
         originalPlannedStartTime = try container.decodeIfPresent(String.self, forKey: .originalPlannedStartTime)
-            ?? plannedStartTime
         overdueFromDate = Self.decodeDate(from: container, forKey: .overdueFromDate)
 
         let durationMinutes = try container.decodeIfPresent(Double.self, forKey: .plannedDuration) ?? 30
@@ -319,9 +320,9 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         try container.encode(id, forKey: .id)
         try container.encode(title, forKey: .title)
         try container.encode(description, forKey: .description)
-        try container.encode(Self.apiDateFormatter.string(from: doDate), forKey: .doDate)
+        try container.encode(Self.apiDateString(from: doDate), forKey: .doDate)
         if let dueDate {
-            try container.encode(Self.apiDateFormatter.string(from: dueDate), forKey: .dueDate)
+            try container.encode(Self.apiDateString(from: dueDate), forKey: .dueDate)
         } else {
             try container.encodeNil(forKey: .dueDate)
         }
@@ -330,7 +331,7 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         try container.encode(plannedStartTime, forKey: .plannedStartTime)
         try container.encode(originalPlannedStartTime, forKey: .originalPlannedStartTime)
         if let overdueFromDate {
-            try container.encode(Self.apiDateFormatter.string(from: overdueFromDate), forKey: .overdueFromDate)
+            try container.encode(Self.apiDateString(from: overdueFromDate), forKey: .overdueFromDate)
         } else {
             try container.encodeNil(forKey: .overdueFromDate)
         }
@@ -353,15 +354,6 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         }
     }
 
-    private static let apiDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter
-    }()
-
     private static let apiDateTimeFormatter = ISO8601DateFormatter()
 
     private static func decodeDate(
@@ -371,7 +363,54 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         guard let value = try? container.decode(String.self, forKey: key) else {
             return nil
         }
-        return apiDateFormatter.date(from: value) ?? apiDateTimeFormatter.date(from: value)
+        return apiDate(from: value) ?? apiDateTimeFormatter.date(from: value)
+    }
+
+    /// Django's date fields represent a calendar day without a time zone. Build
+    /// them with the device's current calendar at the moment of conversion so a
+    /// cached formatter cannot shift the task across days after a time-zone change.
+    static func apiDate(
+        from value: String,
+        in timeZone: TimeZone = .autoupdatingCurrent
+    ) -> Date? {
+        let parts = value.split(separator: "-", omittingEmptySubsequences: false)
+        guard parts.count == 3,
+              parts[0].count == 4,
+              parts[1].count == 2,
+              parts[2].count == 2,
+              let year = Int(parts[0]),
+              let month = Int(parts[1]),
+              let day = Int(parts[2]) else {
+            return nil
+        }
+
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        guard let date = calendar.date(from: DateComponents(year: year, month: month, day: day)) else {
+            return nil
+        }
+        let decoded = calendar.dateComponents([.year, .month, .day], from: date)
+        guard decoded.year == year, decoded.month == month, decoded.day == day else {
+            return nil
+        }
+        return date
+    }
+
+    private static func apiDateString(from date: Date) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = .autoupdatingCurrent
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(
+            format: "%04d-%02d-%02d",
+            components.year ?? 0,
+            components.month ?? 0,
+            components.day ?? 0
+        )
+    }
+
+    static func apiTimeString(from date: Date) -> String {
+        let components = Calendar.autoupdatingCurrent.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", components.hour ?? 0, components.minute ?? 0)
     }
 }
 
@@ -381,6 +420,17 @@ enum AppTheme: String, CaseIterable, Identifiable {
     case highContrast = "High Contrast"
 
     var id: String { rawValue }
+
+    var preferredColorScheme: ColorScheme? {
+        switch self {
+        case .dark, .highContrast: return .dark
+        case .light: return .light
+        }
+    }
+
+    var contrastAmount: Double {
+        self == .highContrast ? 1.2 : 1
+    }
 }
 
 // MARK: - Color Hex Extension (Global across iOS project)

@@ -19,7 +19,7 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-The app provides Today, Future, Categories, and Settings tabs. Categories open into their own focused task lists, while Settings contains both general preferences and weekly reports. Tasks can repeat daily or weekly, and completed tasks stay hidden unless **Show completed tasks** is enabled.
+The app provides Today, Future, Categories, and Settings tabs. Categories open into their own focused task lists, while Settings contains both general preferences and weekly reports. Tasks can repeat daily, weekly, monthly, or on selected weekdays, and completed tasks stay hidden unless **Show completed tasks** is enabled.
 
 Tasks without a planned time remain simple list items; scheduled tasks appear on the vertical calendar. The live current-time line updates every second. Overdue work is rescheduled in the stored task data, while the original planned block remains as a pale trail and timer sessions render as solid actual history in the category color (or black for unplanned work).
 
@@ -32,9 +32,33 @@ Run the iOS unit tests after installing an iOS Simulator runtime in Xcode:
 ```bash
 xcodebuild -project ios/PlanTapDo.xcodeproj \
   -scheme PlanTapDo \
-  -destination 'platform=iOS Simulator,name=iPhone 16' \
+  -destination 'platform=iOS Simulator,name=<installed simulator name>' \
   test
 ```
+
+### TestFlight archive
+
+Deploy the backend first and confirm that its public readiness endpoint returns
+HTTP 200. Then archive with the exact public API root; the trailing `/api/` is
+required. Release builds accept only HTTPS and deliberately disable cloud sync
+when this value is missing or invalid.
+
+```bash
+xcodebuild -project ios/PlanTapDo.xcodeproj \
+  -scheme PlanTapDo \
+  -configuration Release \
+  -destination generic/platform=iOS \
+  -archivePath build/PlanTapDo.xcarchive \
+  'API_BASE_URL=https://api.your-domain.example/api/' \
+  archive
+```
+
+Use the repository's configured Apple team and automatic signing in Xcode, then
+validate and upload the archive from Organizer. Before each upload, increment
+`CURRENT_PROJECT_VERSION`; keep `MARKETING_VERSION` aligned with the App Store
+version. The production API URL, Apple distribution certificate/profile, and
+App Store Connect access are deployment credentials and are intentionally not
+stored in this repository.
 
 ## Backend
 

@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.contrib.auth.hashers import identify_hasher
 from django.test import TestCase
 from django.urls import reverse
@@ -136,6 +138,36 @@ class AccountAndSyncTests(TestCase):
         self.assertEqual(todo_res.data["recurrence_frequency"], "daily")
         self.assertEqual(len(todo_res.data["subtasks"]), 1)
 
+    def test_custom_recurrence_weekdays_round_trip(self):
+        response = self.client.post(
+            reverse("todo-list"),
+            {
+                "title": "Strength training",
+                "recurrence_frequency": "custom",
+                "recurrence_weekdays": [6, 2, 4],
+                "recurrence_series_id": "77777777-7777-7777-7777-777777777777",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["recurrence_frequency"], "custom")
+        self.assertEqual(response.data["recurrence_weekdays"], [2, 4, 6])
+
+    def test_custom_recurrence_requires_a_weekday(self):
+        response = self.client.post(
+            reverse("todo-list"),
+            {
+                "title": "Invalid repeat",
+                "recurrence_frequency": "custom",
+                "recurrence_weekdays": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("recurrence_weekdays", response.data)
+
     def test_ios_hex_color_is_normalized(self):
         response = self.client.post(
             reverse("category-list"),
@@ -195,6 +227,9 @@ class AccountAndSyncTests(TestCase):
                     "priority": "urgent",
                     "status": "pending",
                     "planned_duration": 60,
+                    "recurrence_frequency": "custom",
+                    "recurrence_weekdays": [2, 5],
+                    "recurrence_series_id": "66666666-6666-6666-6666-666666666666",
                 }
             ],
             "location_travel_times": {
@@ -206,6 +241,10 @@ class AccountAndSyncTests(TestCase):
         self.assertEqual(post_res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(post_res.data["categories"]), 2)
         self.assertEqual(len(post_res.data["todos"]), 2)
+        synced_todo = next(
+            todo for todo in post_res.data["todos"] if todo["title"] == "Launch App"
+        )
+        self.assertEqual(synced_todo["recurrence_weekdays"], [2, 5])
         self.assertEqual(len(post_res.data["travel_times"]), 1)
         self.assertEqual(post_res.data["travel_times"][0]["duration_minutes"], 20)
 
@@ -509,4 +548,3 @@ class WebSocketAuthenticationTests(TestCase):
             self.assertEqual(message["code"], 4405)
 
         async_to_sync(scenario)()
-from datetime import timedelta

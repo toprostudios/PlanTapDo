@@ -3,6 +3,7 @@ import SwiftUI
 struct CategoriesView: View {
     @ObservedObject var viewModel: TodoViewModel
     @State private var showingAddCategory = false
+    @State private var selectedCategoryToEdit: Category?
 
     var body: some View {
         ScreenContainer(maxWidth: 700) {
@@ -42,6 +43,19 @@ struct CategoriesView: View {
                     }
                     .buttonStyle(.plain)
                     .padding(.horizontal)
+                    .contextMenu {
+                        Button {
+                            selectedCategoryToEdit = category
+                        } label: {
+                            Label("Edit Category", systemImage: "pencil")
+                        }
+
+                        Button(role: .destructive) {
+                            viewModel.deleteCategory(id: category.id)
+                        } label: {
+                            Label("Delete Category", systemImage: "trash")
+                        }
+                    }
                 }
 
                 if viewModel.categories.isEmpty {
@@ -58,6 +72,10 @@ struct CategoriesView: View {
         }
         .sheet(isPresented: $showingAddCategory) {
             AddCategoryView(viewModel: viewModel)
+                .presentationDetents([.medium])
+        }
+        .sheet(item: $selectedCategoryToEdit) { category in
+            EditCategoryView(viewModel: viewModel, category: category)
                 .presentationDetents([.medium])
         }
     }
@@ -105,8 +123,11 @@ private struct CategoryRow: View {
 struct CategoryDetailView: View {
     @ObservedObject var viewModel: TodoViewModel
     let categoryId: UUID
+    @Environment(\.dismiss) private var dismiss
 
     @State private var showingTaskComposer = false
+    @State private var showingEditCategory = false
+    @State private var showingDeleteConfirmation = false
     @State private var selectedTodo: TodoEntry?
 
     private var category: Category? {
@@ -168,6 +189,45 @@ struct CategoryDetailView: View {
         .listStyle(.insetGrouped)
         .navigationTitle("\(category?.icon ?? "🔖") \(category?.name ?? "Category")")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        showingEditCategory = true
+                    } label: {
+                        Label("Edit Category", systemImage: "pencil")
+                    }
+
+                    Button(role: .destructive) {
+                        showingDeleteConfirmation = true
+                    } label: {
+                        Label("Delete Category", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.body.weight(.semibold))
+                }
+            }
+        }
+        .confirmationDialog(
+            "Delete \"\(category?.name ?? "Category")\"?",
+            isPresented: $showingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Category", role: .destructive) {
+                viewModel.deleteCategory(id: categoryId)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Tasks in this category will not be deleted, but will become uncategorized.")
+        }
+        .sheet(isPresented: $showingEditCategory) {
+            if let category {
+                EditCategoryView(viewModel: viewModel, category: category)
+                    .presentationDetents([.medium])
+            }
+        }
         .sheet(isPresented: $showingTaskComposer) {
             CategoryTaskComposerView(viewModel: viewModel, categoryId: categoryId)
                 .presentationDetents([.large])
@@ -256,15 +316,107 @@ private struct CategoryTaskComposerView: View {
             description: description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : description,
             doDate: scheduledDate,
             dueDate: nil,
-            plannedStartTime: scheduledDate.formatted(
-                .dateTime.hour(.twoDigits(amPM: .omitted)).minute(.twoDigits)
-            ),
+            plannedStartTime: TodoEntry.apiTimeString(from: scheduledDate),
             plannedDuration: TimeInterval(durationMinutes * 60),
             categoryId: categoryId,
             recurrenceFrequency: recurrence,
-            recurrenceWeekdays: recurrence == .custom ? Array(selectedWeekdays) : nil
+            recurrenceWeekdays: recurrence == .custom
+                ? Array(
+                    selectedWeekdays.isEmpty
+                        ? [Calendar.autoupdatingCurrent.component(.weekday, from: scheduledDate)]
+                        : selectedWeekdays
+                ).sorted()
+                : nil
         )
         dismiss()
+    }
+}
+
+private struct EditCategoryView: View {
+    @ObservedObject var viewModel: TodoViewModel
+    let category: Category
+    @Environment(\.dismiss) private var dismiss
+    @State private var name: String
+    @State private var icon: String
+    @State private var colorHex: String
+
+    private let swatches = ["7C6FF7", "3ECF8E", "F5A623", "60A5FA", "EC4899", "F43F5E", "EAB308", "14B8A6"]
+
+    init(viewModel: TodoViewModel, category: Category) {
+        self.viewModel = viewModel
+        self.category = category
+        _name = State(initialValue: category.name)
+        _icon = State(initialValue: category.icon ?? "🔖")
+        _colorHex = State(initialValue: category.colorHex)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Category") {
+                    TextField("Name", text: $name)
+                        .modernTextInput()
+                    TextField("Any emoji", text: $icon)
+                        .font(.title2)
+                        .modernTextInput()
+                        .accessibilityLabel("Category emoji")
+
+                    Text("Quick picks")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 6), spacing: 10) {
+                        ForEach(["🎯", "💼", "🏡", "🏋️", "📚", "🎨", "🧠", "🛒", "✈️", "🎵", "💰", "❤️"], id: \.self) { emoji in
+                            Button { icon = emoji } label: {
+                                Text(emoji).font(.title3).frame(width: 34, height: 34)
+                                    .background(RoundedRectangle(cornerRadius: 8).fill(icon == emoji ? Color.indigo.opacity(0.2) : Color.clear))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+
+                Section("Calendar color") {
+                    HStack(spacing: 12) {
+                        ForEach(swatches, id: \.self) { swatch in
+                            Button {
+                                colorHex = swatch
+                            } label: {
+                                Circle()
+                                    .fill(Color(hex: swatch))
+                                    .frame(width: 27, height: 27)
+                                    .overlay {
+                                        if colorHex == swatch {
+                                            Image(systemName: "checkmark")
+                                                .font(.caption.weight(.black))
+                                                .foregroundStyle(.white)
+                                        }
+                                    }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Edit Category")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        var updated = category
+                        updated.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        updated.icon = icon.isEmpty ? "🔖" : icon
+                        updated.colorHex = colorHex
+                        viewModel.updateCategory(updated)
+                        dismiss()
+                    }
+                    .fontWeight(.bold)
+                    .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
     }
 }
 

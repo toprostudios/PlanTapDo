@@ -36,7 +36,11 @@ class TodoViewModel: ObservableObject {
     @Published var displayStyle: DisplayStyle = .list
     @Published var selectedFutureDate: Date = Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date()
     @Published var currentWeekOffset: Int = 0
-    @Published var theme: AppTheme = .dark
+    @Published var theme: AppTheme = AppTheme(
+        rawValue: UserDefaults.standard.string(forKey: "appTheme") ?? ""
+    ) ?? .dark {
+        didSet { UserDefaults.standard.set(theme.rawValue, forKey: "appTheme") }
+    }
     @Published var showCompletedTasks: Bool {
         didSet { UserDefaults.standard.set(showCompletedTasks, forKey: "showCompletedTasks") }
     }
@@ -91,9 +95,6 @@ class TodoViewModel: ObservableObject {
             todos[idx].status = .inProgress
             todos[idx].doDate = Calendar.current.startOfDay(for: now)
             todos[idx].plannedStartTime = Self.timeString(from: min(23 * 60 + 55, Self.roundedUpToFiveMinutes(now)))
-            if todos[idx].originalPlannedStartTime == nil {
-                todos[idx].originalPlannedStartTime = originalTodo.plannedStartTime
-            }
             var sessions = todos[idx].timeSessions ?? []
             sessions.append(session)
             todos[idx].timeSessions = sessions
@@ -209,8 +210,7 @@ class TodoViewModel: ObservableObject {
         self.showCompletedTasks = UserDefaults.standard.bool(forKey: "showCompletedTasks")
         self.localWorkspaces = persistedState?.workspaces ?? [personalAccount.id: .empty]
 
-        if !restoredAccount.isCloudSynced,
-           restoredAccount.tier != "Pro Demo" {
+        if restoredAccount.tier != "Pro Demo" {
             let workspace = localWorkspaces[restoredAccount.id] ?? .empty
             self.todos = workspace.todos
             self.categories = workspace.categories
@@ -276,25 +276,47 @@ class TodoViewModel: ObservableObject {
     func setTravelTimeBetweenLocations(_ locA: String, _ locB: String, durationMinutes: Int) {
         guard !locA.isEmpty && !locB.isEmpty else { return }
         let key = makeLocationKey(locA, locB)
-        locationTravelTimes[key] = durationMinutes
+        locationTravelTimes[key] = max(0, min(10_080, durationMinutes))
+        guard userAccount.isCloudSynced, api.isAuthenticated else { return }
+
+        api.syncTravelTimes(locationTravelTimes)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] state in
+                self?.applyTravelTimes(state.travelTimes)
+            }
+            .store(in: &cancellables)
     }
 
     func switchAccount(_ account: UserAccount) {
-        saveActiveLocalWorkspace()
+        saveActiveWorkspace()
+        let wasRestoringState = isRestoringState
+        isRestoringState = true
+        defer {
+            isRestoringState = wasRestoringState
+            if !wasRestoringState {
+                persistAppState()
+            }
+        }
         clearTimerState()
         clearStartUndo()
         userAccount = account
-        if account.isCloudSynced,
-           let tokens = credentialStore.load(accountID: account.id) {
-            api.setAuthTokens(tokens, notify: false)
-            fetchTodos()
-        } else if account.tier == "Pro Demo" {
+        if account.tier == "Pro Demo" {
             api.clearAuthTokens(notify: false)
             loadProReviewDemoData()
         } else {
-            api.clearAuthTokens(notify: false)
-            restoreLocalWorkspace(for: account)
-            if account.isCloudSynced {
+            restoreWorkspace(for: account)
+            if account.isCloudSynced,
+               let tokens = credentialStore.load(accountID: account.id) {
+                api.setAuthTokens(tokens, notify: false)
+                fetchTodos()
+            } else {
+                api.clearAuthTokens(notify: false)
+            }
+            if account.isCloudSynced && !api.isAuthenticated {
                 errorMessage = "Sign in again to resume cloud sync."
             }
         }
@@ -371,17 +393,25 @@ class TodoViewModel: ObservableObject {
         availableAccounts.removeAll { $0.id == signedOutID }
         guard let fallback = availableAccounts.first(where: { !$0.isCloudSynced }) else { return }
         switchAccount(fallback)
+        localWorkspaces.removeValue(forKey: signedOutID)
+        persistAppState()
     }
 
     private func activateCloudAccount(_ account: UserAccount, tokens: APIClient.AuthTokens) {
-        saveActiveLocalWorkspace()
+        saveActiveWorkspace()
+        let wasRestoringState = isRestoringState
+        isRestoringState = true
         availableAccounts.removeAll { $0.id == account.id }
         availableAccounts.append(account)
         userAccount = account
+        restoreWorkspace(for: account)
         teamReviewPeople = []
+        isRestoringState = wasRestoringState
         credentialStore.save(tokens, accountID: account.id)
         api.setAuthTokens(tokens, notify: false)
-        persistAppState()
+        if !wasRestoringState {
+            persistAppState()
+        }
         fetchTodos()
     }
 
@@ -555,8 +585,8 @@ class TodoViewModel: ObservableObject {
         ]
     }
 
-    private func saveActiveLocalWorkspace() {
-        guard !userAccount.isCloudSynced, !isProReviewDemo else { return }
+    private func saveActiveWorkspace() {
+        guard !isProReviewDemo else { return }
         localWorkspaces[userAccount.id] = WorkspaceState(
             todos: todos,
             categories: categories,
@@ -565,7 +595,7 @@ class TodoViewModel: ObservableObject {
         )
     }
 
-    private func restoreLocalWorkspace(for account: UserAccount) {
+    private func restoreWorkspace(for account: UserAccount) {
         let workspace = localWorkspaces[account.id] ?? .empty
         todos = workspace.todos
         categories = workspace.categories
@@ -577,7 +607,7 @@ class TodoViewModel: ObservableObject {
 
     private func persistAppState() {
         guard !isRestoringState else { return }
-        if !userAccount.isCloudSynced, !isProReviewDemo {
+        if !isProReviewDemo {
             localWorkspaces[userAccount.id] = WorkspaceState(
                 todos: todos,
                 categories: categories,
@@ -613,6 +643,7 @@ class TodoViewModel: ObservableObject {
                 guard let self else { return }
                 self.todos = state.todos
                 self.categories = state.categories
+                self.applyTravelTimes(state.travelTimes)
                 for session in state.sessions {
                     guard let todoId = session.todoId,
                           let index = self.todos.firstIndex(where: { $0.id == todoId }) else { continue }
@@ -666,7 +697,6 @@ class TodoViewModel: ObservableObject {
             timeSessions: nil,
             subtasks: [],
             assigneeId: nil,
-            originalPlannedStartTime: plannedStartTime,
             recurrenceFrequency: recurrenceFrequency,
             recurrenceWeekdays: recurrenceWeekdays,
             recurrenceSeriesId: recurrenceSeriesId
@@ -751,12 +781,12 @@ class TodoViewModel: ObservableObject {
     func addFocusBlock(_ block: FocusBlock) {
         focusBlocks.append(block)
         applyFocusRulesToScheduledTasks()
-        saveActiveLocalWorkspace()
+        saveActiveWorkspace()
     }
 
     func removeFocusBlock(id: UUID) {
         focusBlocks.removeAll { $0.id == id }
-        saveActiveLocalWorkspace()
+        saveActiveWorkspace()
     }
 
 
@@ -782,7 +812,6 @@ class TodoViewModel: ObservableObject {
             timeSessions: nil,
             subtasks: (todo.subtasks ?? []).map { Subtask(id: UUID().uuidString, title: $0.title, isCompleted: false) },
             assigneeId: todo.assigneeId,
-            originalPlannedStartTime: todo.plannedStartTime,
             recurrenceFrequency: .none
         )
         todos.append(copy)
@@ -948,9 +977,6 @@ class TodoViewModel: ObservableObject {
         guard !Calendar.current.isDate(allowed.date, inSameDayAs: todo.doDate)
                 || allowed.minute != Self.minutes(from: plannedStartTime) else { return false }
 
-        if todo.originalPlannedStartTime == nil {
-            todo.originalPlannedStartTime = plannedStartTime
-        }
         todo.doDate = allowed.date
         todo.plannedStartTime = Self.timeString(from: allowed.minute)
         return true
@@ -988,21 +1014,7 @@ class TodoViewModel: ObservableObject {
               let seriesId = template.recurrenceSeriesId else { return }
 
         let calendar = Calendar.current
-        let dayStep: Int
-        let occurrenceCount: Int
-        switch template.recurrenceFrequency {
-        case .daily: (dayStep, occurrenceCount) = (1, 14)
-        case .weekly, .custom: (dayStep, occurrenceCount) = (7, 8)
-        case .monthly: (dayStep, occurrenceCount) = (30, 6)
-        case .none: return
-        }
-
-        for offset in 1...occurrenceCount {
-            guard let occurrenceDate = calendar.date(
-                byAdding: .day,
-                value: dayStep * offset,
-                to: calendar.startOfDay(for: template.doDate)
-            ) else { continue }
+        for occurrenceDate in recurrenceDates(after: template) {
 
             let alreadyExists = todos.contains {
                 $0.recurrenceSeriesId == seriesId
@@ -1025,7 +1037,7 @@ class TodoViewModel: ObservableObject {
                 dueDate: occurrenceDueDate,
                 dueTime: template.dueTime,
                 descriptiveDeadline: template.descriptiveDeadline,
-                plannedStartTime: template.originalPlannedStartTime ?? template.plannedStartTime,
+                plannedStartTime: template.plannedStartTime,
                 plannedDuration: template.plannedDuration,
                 categoryId: template.categoryId,
                 status: .pending,
@@ -1038,7 +1050,6 @@ class TodoViewModel: ObservableObject {
                     Subtask(id: UUID().uuidString, title: $0.title, isCompleted: false)
                 },
                 assigneeId: template.assigneeId,
-                originalPlannedStartTime: template.originalPlannedStartTime ?? template.plannedStartTime,
                 recurrenceFrequency: template.recurrenceFrequency,
                 recurrenceWeekdays: template.recurrenceWeekdays,
                 recurrenceSeriesId: seriesId
@@ -1052,12 +1063,53 @@ class TodoViewModel: ObservableObject {
         guard todo.recurrenceFrequency != .none,
               let seriesId = todo.recurrenceSeriesId else { return }
         let calendar = Calendar.current
-        let dayStep: Int = todo.recurrenceFrequency == .daily ? 1 : (todo.recurrenceFrequency == .monthly ? 30 : 7)
-        guard let nextDate = calendar.date(byAdding: .day, value: dayStep, to: todo.doDate) else { return }
+        guard let nextDate = recurrenceDates(after: todo).first else { return }
         guard !todos.contains(where: {
             $0.recurrenceSeriesId == seriesId && calendar.isDate($0.doDate, inSameDayAs: nextDate)
         }) else { return }
         materializeRecurringOccurrences(from: todo)
+    }
+
+    private func recurrenceDates(after template: TodoEntry) -> [Date] {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: template.doDate)
+
+        switch template.recurrenceFrequency {
+        case .none:
+            return []
+        case .daily:
+            return (1...14).compactMap {
+                calendar.date(byAdding: .day, value: $0, to: start)
+            }
+        case .weekly:
+            return (1...8).compactMap {
+                calendar.date(byAdding: .weekOfYear, value: $0, to: start)
+            }
+        case .monthly:
+            return (1...6).compactMap {
+                calendar.date(byAdding: .month, value: $0, to: start)
+            }
+        case .custom:
+            var weekdays = Set(template.recurrenceWeekdays ?? [])
+                .filter { (1...7).contains($0) }
+            if weekdays.isEmpty {
+                weekdays.insert(calendar.component(.weekday, from: start))
+            }
+            return (1...(8 * 7)).compactMap { offset -> Date? in
+                guard let date = calendar.date(byAdding: .day, value: offset, to: start),
+                      weekdays.contains(calendar.component(.weekday, from: date)) else {
+                    return nil
+                }
+                return date
+            }
+        }
+    }
+
+    private func applyTravelTimes(_ travelTimes: [APIClient.TravelTimeResponse]?) {
+        guard let travelTimes else { return }
+        locationTravelTimes = travelTimes.reduce(into: [:]) { result, item in
+            result[item.locationKey] = item.durationMinutes
+        }
     }
 
     private func hasRecurringOccurrence(for todo: TodoEntry, on date: Date) -> Bool {
@@ -1207,21 +1259,40 @@ class TodoViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
+    func updateCategory(_ category: Category) {
+        guard let index = categories.firstIndex(where: { $0.id == category.id }) else { return }
+        categories[index] = category
+        guard api.isAuthenticated else { return }
+
+        api.updateCategory(category)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] updatedCategory in
+                guard let self,
+                      let catIndex = self.categories.firstIndex(where: { $0.id == updatedCategory.id }) else { return }
+                self.categories[catIndex] = updatedCategory
+            }
+            .store(in: &cancellables)
+    }
+
     func deleteCategory(id: UUID) {
-        let removedCategory = categories.first { $0.id == id }
-        let removedTodos = todos.filter { $0.categoryId == id }
+        guard let removedCategory = categories.first(where: { $0.id == id }) else { return }
+        let previousTodos = todos
         categories.removeAll { $0.id == id }
-        todos.removeAll { $0.categoryId == id }
+        for index in todos.indices where todos[index].categoryId == id {
+            todos[index].categoryId = nil
+        }
         guard api.isAuthenticated else { return }
 
         api.deleteCategory(id: id)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] completion in
                 if case let .failure(error) = completion {
-                    if let removedCategory {
-                        self?.categories.append(removedCategory)
-                    }
-                    self?.todos.append(contentsOf: removedTodos)
+                    self?.categories.append(removedCategory)
+                    self?.todos = previousTodos
                     self?.errorMessage = error.localizedDescription
                 }
             } receiveValue: { _ in }

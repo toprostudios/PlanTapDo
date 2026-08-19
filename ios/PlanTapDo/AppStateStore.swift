@@ -57,9 +57,12 @@ struct WorkspaceState: Codable {
         try container.encode(categories, forKey: .categories)
         try container.encode(locationTravelTimes, forKey: .locationTravelTimes)
         try container.encode(focusBlocks, forKey: .focusBlocks)
-        let sessions = Dictionary(uniqueKeysWithValues: todos.compactMap { todo in
-            todo.timeSessions.map { (todo.id, $0) }
-        })
+        let sessions = Dictionary(
+            todos.compactMap { todo in
+                todo.timeSessions.map { (todo.id, $0) }
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
         try container.encode(sessions, forKey: .timeSessionsByTodoID)
     }
 }
