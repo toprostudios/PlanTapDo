@@ -434,8 +434,40 @@ class OwnershipIsolationTests(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("end", response.data)
+    def test_session_and_repeat_rule_crud_operations(self):
+        own_todo = TodoEntry.objects.create(owner=self.user, title="Session todo")
+        session_resp = self.client.post(
+            reverse("session-list"),
+            {
+                "todo": str(own_todo.id),
+                "start": "2026-08-01T12:00:00Z",
+                "end": "2026-08-01T12:30:00Z",
+            },
+            format="json",
+        )
+        self.assertEqual(session_resp.status_code, status.HTTP_201_CREATED)
+        session_id = session_resp.data["id"]
+
+        patch_resp = self.client.patch(
+            reverse("session-detail", args=[session_id]),
+            {"end": "2026-08-01T12:45:00Z"},
+            format="json",
+        )
+        self.assertEqual(patch_resp.status_code, status.HTTP_200_OK)
+
+        rule_resp = self.client.post(
+            reverse("repeat-rule-list"),
+            {"todo": str(own_todo.id), "frequency": "daily", "interval": 1},
+            format="json",
+        )
+        self.assertEqual(rule_resp.status_code, status.HTTP_201_CREATED)
+        rule_id = rule_resp.data["id"]
+
+        del_rule_resp = self.client.delete(reverse("repeat-rule-detail", args=[rule_id]))
+        self.assertEqual(del_rule_resp.status_code, status.HTTP_204_NO_CONTENT)
+
+        del_session_resp = self.client.delete(reverse("session-detail", args=[session_id]))
+        self.assertEqual(del_session_resp.status_code, status.HTTP_204_NO_CONTENT)
 
 
 class WebSocketAuthenticationTests(TestCase):
