@@ -141,7 +141,12 @@ struct CategoryDetailView: View {
                 if !Calendar.current.isDate($0.doDate, inSameDayAs: $1.doDate) {
                     return $0.doDate < $1.doDate
                 }
-                return ($0.plannedStartTime ?? "23:59") < ($1.plannedStartTime ?? "23:59")
+                let leftTime = $0.plannedStartTime ?? "23:59"
+                let rightTime = $1.plannedStartTime ?? "23:59"
+                if leftTime == rightTime {
+                    return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                }
+                return leftTime < rightTime
             }
     }
 

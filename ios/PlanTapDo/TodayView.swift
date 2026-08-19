@@ -195,6 +195,23 @@ struct TaskListRowView: View {
         }
         .clipShape(RoundedRectangle(cornerRadius: 14))
         .padding(.horizontal, usesOuterPadding ? 16 : 0)
+        .contextMenu {
+            Button(action: onOpen) {
+                Label("Edit Details", systemImage: "pencil")
+            }
+
+            Button {
+                viewModel.duplicateTodo(todo)
+            } label: {
+                Label("Duplicate Task", systemImage: "doc.on.doc")
+            }
+
+            Button(role: .destructive) {
+                viewModel.deleteTodo(id: todo.id)
+            } label: {
+                Label("Delete Task", systemImage: "trash")
+            }
+        }
     }
 }
 
