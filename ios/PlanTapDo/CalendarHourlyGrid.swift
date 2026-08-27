@@ -140,18 +140,6 @@ struct CalendarHourlyGrid: View {
             .sorted { ($0.plannedStartTime ?? "23:59") < ($1.plannedStartTime ?? "23:59") }
     }
 
-    private func historyTodos(for targetDate: Date) -> [TodoEntry] {
-        let calendar = Calendar.current
-        let dayStart = calendar.startOfDay(for: targetDate)
-        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
-        return viewModel.todos.filter { todo in
-            (todo.timeSessions ?? []).contains { session in
-                let sessionEnd = session.end ?? now
-                return session.start < dayEnd && sessionEnd > dayStart
-            }
-        }
-    }
-
     private func focusBlocks(for targetDate: Date) -> [FocusBlock] {
         let weekday = Calendar.current.component(.weekday, from: targetDate)
         return viewModel.focusBlocks.filter { $0.weekdays.contains(weekday) }
@@ -225,10 +213,8 @@ struct CalendarHourlyGrid: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    Label("Scheduled", systemImage: "calendar")
+                    Label("Schedule", systemImage: "calendar")
                         .foregroundStyle(.secondary)
-                    Label("Recorded work", systemImage: "timer")
-                        .foregroundStyle(.indigo)
                 }
                 .font(.system(size: 9, weight: .semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -274,7 +260,6 @@ struct CalendarHourlyGrid: View {
                             ForEach(visibleDates, id: \.self) { colDate in
                                 let isCompactLayout = visibleDates.count > 3
                                 let todosForDay = dayTodos(for: colDate)
-                                let historyTodosForDay = historyTodos(for: colDate)
                                 let focusBlocksForDay = focusBlocks(for: colDate)
                                 let overlapMap = computeOverlapLayouts(for: colDate)
                                 let transportBlocks = computeTransportBlocks(for: colDate)
@@ -350,20 +335,6 @@ struct CalendarHourlyGrid: View {
                                                         .frame(height: 2)
                                                         .offset(y: currentTimePx)
                                                         .zIndex(3)
-                                                }
-                                            }
-
-                                            // Only recorded timer sessions leave calendar history.
-                                            ForEach(historyTodosForDay) { todo in
-                                                ForEach(todo.timeSessions ?? []) { session in
-                                                    if let actual = actualSessionMetrics(for: session, on: colDate) {
-                                                        let sessionColor = actualSessionColor(for: todo)
-                                                        RoundedRectangle(cornerRadius: 5)
-                                                            .fill(sessionColor.opacity(0.55))
-                                                            .frame(width: max(25, geo.size.width - 10), height: actual.height)
-                                                            .offset(x: 5, y: actual.top)
-                                                            .zIndex(1)
-                                                    }
                                                 }
                                             }
 
@@ -488,35 +459,13 @@ struct CalendarHourlyGrid: View {
 
         let clampedHour = max(7.0, min(22.0, h))
         let plannedStartPx = ((clampedHour - 7.0) * 60.0 + m) * pointsPerMinute
-        let plannedDurationPx = CGFloat(todo.plannedDuration / 60.0) * pointsPerMinute
-        let heightPx = max(52 * effectiveCalendarScale, plannedDurationPx)
-        let plannedMinutes = Int(todo.plannedDuration / 60.0)
+        // Depend on the stopwatch so an active card grows smoothly instead of
+        // leaving a second "actual work" block beneath the task.
+        let _ = viewModel.timerSecondsElapsed
+        let plannedDurationPx = CGFloat(viewModel.calendarDuration(for: todo, at: Date()) / 60.0) * pointsPerMinute
+        let heightPx = max(20 * effectiveCalendarScale, plannedDurationPx)
+        let plannedMinutes = Int(viewModel.calendarDuration(for: todo, at: Date()) / 60.0)
         return (plannedStartPx, heightPx, false, plannedMinutes)
-    }
-
-    private func actualSessionMetrics(for session: TimeSession, on targetDate: Date) -> (top: CGFloat, height: CGFloat)? {
-        let calendar = Calendar.current
-        let dayStart = calendar.startOfDay(for: targetDate)
-        guard let gridStart = calendar.date(byAdding: .hour, value: 7, to: dayStart),
-              let gridEnd = calendar.date(byAdding: .hour, value: 23, to: dayStart) else { return nil }
-
-        let sessionEnd = session.end ?? now
-        let clippedStart = max(session.start, gridStart)
-        let clippedEnd = min(sessionEnd, gridEnd)
-        guard clippedEnd > clippedStart else { return nil }
-
-        let top = CGFloat(clippedStart.timeIntervalSince(gridStart) / 60) * pointsPerMinute
-        // A recorded session is a quiet timeline marker, not a second task
-        // card. In particular, a running timer must not cover the calendar.
-        let height = max(
-            4 * effectiveCalendarScale,
-            min(12 * effectiveCalendarScale, CGFloat(clippedEnd.timeIntervalSince(clippedStart) / 60) * pointsPerMinute)
-        )
-        return (top, height)
-    }
-
-    private func actualSessionColor(for todo: TodoEntry) -> Color {
-        return Color(hex: category(for: todo.categoryId)?.colorHex ?? "7C6FF7")
     }
 
     private func updateTimeForTodo(_ todo: TodoEntry, verticalOffset: CGFloat) {
@@ -764,18 +713,6 @@ struct CalendarCardView: View {
 
         HStack(alignment: .top, spacing: 5) {
             if showsCardText {
-                Button {
-                    viewModel.toggleComplete(todo)
-                } label: {
-                    Image(systemName: "circle")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(catColor)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Finish \(todo.title)")
-            }
-
-            if showsCardText {
                 Button(action: onOpen) {
                     VStack(alignment: .leading, spacing: 3) {
                         HStack(spacing: 3) {
@@ -789,10 +726,11 @@ struct CalendarCardView: View {
                                 .lineLimit(2)
                         }
 
-                        Text(todo.plannedStartTime ?? "")
+                        Text(isTimerActive ? viewModel.timerFormatted : (todo.plannedStartTime ?? ""))
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.white.opacity(0.86))
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
             } else {
@@ -820,6 +758,7 @@ struct CalendarCardView: View {
                     .background(Circle().fill(isTimerActive ? Color.red : Color.indigo))
                 }
                 .buttonStyle(.plain)
+                .disabled(!isTimerActive && !viewModel.canStartAnotherTask)
 
                 Button {
                     viewModel.finishTodo(id: todo.id)
@@ -835,7 +774,8 @@ struct CalendarCardView: View {
                 .accessibilityLabel("Finish \(todo.title)")
             }
         }
-        .padding(6)
+        .padding(.vertical, 6)
+        .padding(.trailing, 6)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(metrics.isPushed ? catColor.opacity(0.58) : catColor)

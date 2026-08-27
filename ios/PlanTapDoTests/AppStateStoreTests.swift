@@ -278,7 +278,7 @@ final class AppStateStoreTests: XCTestCase {
         XCTAssertEqual(components.day, 14)
     }
 
-    func testCustomRecurrenceUsesSelectedWeekdays() throws {
+    func testCustomRecurrenceDoesNotPreGenerateFutureTasks() throws {
         let (viewModel, directory) = makeViewModel()
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let start = try XCTUnwrap(
@@ -292,18 +292,10 @@ final class AppStateStoreTests: XCTestCase {
             recurrenceWeekdays: [2, 5]
         )
 
-        let dates = viewModel.todos.dropFirst().map(\.doDate)
-        XCTAssertEqual(dates.count, 16)
-        XCTAssertTrue(dates.allSatisfy {
-            [2, 5].contains(Calendar.current.component(.weekday, from: $0))
-        })
-        XCTAssertEqual(
-            Set(dates.map { Calendar.current.component(.weekday, from: $0) }),
-            Set([2, 5])
-        )
+        XCTAssertEqual(viewModel.todos.count, 1)
     }
 
-    func testMonthlyRecurrenceAdvancesByCalendarMonth() throws {
+    func testMonthlyRecurrenceDoesNotPreGenerateFutureTasks() throws {
         let (viewModel, directory) = makeViewModel()
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let start = try XCTUnwrap(
@@ -316,13 +308,10 @@ final class AppStateStoreTests: XCTestCase {
             recurrenceFrequency: .monthly
         )
 
-        let monthValues = viewModel.todos.dropFirst().map {
-            Calendar.current.component(.month, from: $0.doDate)
-        }
-        XCTAssertEqual(monthValues, [2, 3, 4, 5, 6, 7])
+        XCTAssertEqual(viewModel.todos.count, 1)
     }
 
-    func testSwitchingToCloudAccountRestoresOnlyItsCachedWorkspace() throws {
+    func testLegacyCloudAccountIsExcludedFromLocalOnlyVersionOne() throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
@@ -359,10 +348,8 @@ final class AppStateStoreTests: XCTestCase {
         )
         let viewModel = TodoViewModel(stateStore: store)
 
-        viewModel.switchAccount(cloud)
-
-        XCTAssertEqual(viewModel.todos.map(\.title), ["Cloud only"])
-        XCTAssertEqual(viewModel.errorMessage, "Sign in again to resume cloud sync.")
+        XCTAssertEqual(viewModel.availableAccounts.map(\.id), [local.id])
+        XCTAssertEqual(viewModel.todos.map(\.title), ["Local only"])
     }
 
     func testDeletingCategoryUnassignsCategoryFromTasksWithoutDeletingTasks() throws {

@@ -483,21 +483,16 @@ struct TodoEntry: Identifiable, Codable, Hashable {
 }
 
 enum AppTheme: String, CaseIterable, Identifiable {
-    case dark = "Dark Glass"
-    case light = "Crisp Light"
-    case highContrast = "High Contrast"
+    case dark = "Dark"
+    case light = "Light"
 
     var id: String { rawValue }
 
     var preferredColorScheme: ColorScheme? {
         switch self {
-        case .dark, .highContrast: return .dark
+        case .dark: return .dark
         case .light: return .light
         }
-    }
-
-    var contrastAmount: Double {
-        self == .highContrast ? 1.2 : 1
     }
 }
 

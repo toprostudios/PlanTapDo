@@ -6,6 +6,24 @@ struct CategoriesView: View {
     @State private var showingAddCategory = false
     @State private var showingPremiumUpgrade = false
     @State private var selectedCategoryToEdit: Category?
+    @State private var selectedTodo: TodoEntry?
+    @AppStorage("tasksHubShowsAllTasks") private var showsAllTasks = true
+
+    private var visibleTasks: [TodoEntry] {
+        viewModel.todos.filter(viewModel.shouldDisplay).sorted { left, right in
+            if (left.categoryId == nil) != (right.categoryId == nil) { return left.categoryId == nil }
+            if !Calendar.current.isDate(left.doDate, inSameDayAs: right.doDate) { return left.doDate < right.doDate }
+            let leftTime = left.plannedStartTime ?? "00:00"
+            let rightTime = right.plannedStartTime ?? "00:00"
+            if leftTime != rightTime { return leftTime < rightTime }
+            return left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+        }
+    }
+
+    private func category(for id: UUID?) -> Category? {
+        guard let id else { return nil }
+        return viewModel.categories.first { $0.id == id }
+    }
 
     var body: some View {
         ScreenContainer(maxWidth: 700) {
@@ -73,6 +91,38 @@ struct CategoriesView: View {
                     }
                     .padding(.top, 50)
                 }
+
+                Divider().padding(.horizontal)
+
+                Button { showsAllTasks.toggle() } label: {
+                    HStack {
+                        Text("Tasks")
+                            .font(.title3.weight(.bold))
+                        Spacer()
+                        Image(systemName: showsAllTasks ? "chevron.up" : "chevron.down")
+                            .font(.caption.weight(.bold))
+                    }
+                    .padding(.horizontal)
+                }
+                .buttonStyle(.plain)
+
+                if showsAllTasks {
+                    if visibleTasks.isEmpty {
+                        Text("No tasks yet")
+                            .foregroundStyle(.secondary)
+                            .padding(.vertical, 12)
+                    } else {
+                        ForEach(visibleTasks) { todo in
+                            TaskListRowView(
+                                todo: todo,
+                                category: category(for: todo.categoryId),
+                                viewModel: viewModel,
+                                onOpen: { selectedTodo = todo }
+                            )
+                            .padding(.horizontal)
+                        }
+                    }
+                }
             }
             .padding(.bottom, 24)
         }
@@ -87,6 +137,9 @@ struct CategoriesView: View {
         .sheet(item: $selectedCategoryToEdit) { category in
             EditCategoryView(viewModel: viewModel, category: category)
                 .presentationDetents([.medium])
+        }
+        .sheet(item: $selectedTodo) { todo in
+            TaskDetailView(todo: todo, viewModel: viewModel)
         }
     }
 }
@@ -261,7 +314,7 @@ private struct CategoryTaskComposerView: View {
     @State private var title = ""
     @State private var description = ""
     @State private var scheduledDate = Date()
-    @State private var hasPlannedTime = false
+    @State private var hasPlannedTime = true
     @State private var plannedTime = Date()
     @State private var durationMinutes = 30
     @State private var recurrence: RecurrenceFrequency = .none

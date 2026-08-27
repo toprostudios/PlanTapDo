@@ -62,7 +62,7 @@ struct TodayView: View {
             TaskDetailView(todo: todo, viewModel: viewModel)
         }
         .sheet(isPresented: $showingTaskComposer) {
-            TaskComposerView(viewModel: viewModel, start: Date(), showsSchedule: false)
+            TaskComposerView(viewModel: viewModel, start: Date())
                 .presentationDetents([.medium, .large])
         }
         .overlay(alignment: .bottomTrailing) {
@@ -179,6 +179,7 @@ struct TaskListRowView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel(isTimerActive ? "Stop \(todo.title)" : "Start \(todo.title)")
+                .disabled(!isTimerActive && !viewModel.canStartAnotherTask)
             }
 
             Button {

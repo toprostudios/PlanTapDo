@@ -2,7 +2,7 @@ import SwiftUI
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
     case general = "Settings"
-    case focus = "Focus time"
+    case offTime = "Off time"
     case reports = "Reports"
 
     var id: String { rawValue }
@@ -32,7 +32,7 @@ struct SettingsView: View {
 
             switch selectedSection {
             case .general: generalSettings
-            case .focus: FocusTimeSettingsView(viewModel: viewModel)
+            case .offTime: OffTimeSettingsView(viewModel: viewModel)
             case .reports: WeeklyReportsView(viewModel: viewModel)
             }
         }
@@ -41,33 +41,23 @@ struct SettingsView: View {
 
     private var generalSettings: some View {
         Form {
-            Section("👤 Personal Account") {
-                NavigationLink {
-                    AccountView(viewModel: viewModel)
-                } label: {
-                    HStack(spacing: 12) {
-                        Circle()
-                            .fill(Color.indigo)
-                            .frame(width: 38, height: 38)
-                            .overlay {
-                                Text(viewModel.userAccount.name.prefix(1).uppercased())
-                                    .font(.headline.weight(.bold))
-                                    .foregroundStyle(.white)
-                            }
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(viewModel.userAccount.name)
-                                .font(.subheadline.weight(.bold))
-                            Text(viewModel.userAccount.email)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
+            Section("📱 Local data") {
+                Label("Tasks stay on this device", systemImage: "iphone")
+                    .font(.subheadline.weight(.semibold))
+                Text("Version 1 does not require an account and does not sync task data to a server. Cloud sync is planned for a later release.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("✅ Task Visibility") {
                 Toggle("Show completed tasks", isOn: $viewModel.showCompletedTasks)
+            }
+
+            Section("▶️ Running tasks") {
+                Toggle("Start another task automatically", isOn: $viewModel.automaticallySwitchRunningTask)
+                Text("When enabled, starting another task stops the current timer, keeps the recorded segment, and moves its unfinished time later in the schedule. When disabled, stop the current task first.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("🎨 Appearance & Readability") {
@@ -115,70 +105,60 @@ struct SettingsView: View {
     }
 }
 
-private struct FocusTimeSettingsView: View {
+private struct OffTimeSettingsView: View {
     @ObservedObject var viewModel: TodoViewModel
-    @State private var name = "Work time"
-    @State private var weekdays = Set([2, 3, 4, 5, 6])
-    @State private var start = 9 * 60
-    @State private var end = 17 * 60
-    @State private var allowedCategoryIds = Set<UUID>()
+    @State private var isEnabled = false
+    @State private var start = 22 * 60
+    @State private var end = 7 * 60
+
     var body: some View {
         Form {
-            Section("Focus time") {
-                Text("Tasks outside the allowed categories are automatically moved past these hours. Recurring tasks keep their fixed time.")
-                    .font(.caption).foregroundStyle(.secondary)
-                TextField("Block name", text: $name)
-                    .modernTextInput()
-                WeekdaySelector(selectedWeekdays: $weekdays)
-                Picker("From", selection: $start) { ForEach(Array(stride(from: 0, through: 23 * 60, by: 60)), id: \.self) { Text(time($0)).tag($0) } }
-                Picker("Until", selection: $end) { ForEach(Array(stride(from: 60, through: 24 * 60, by: 60)), id: \.self) { Text(time($0)).tag($0) } }
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Allowed during focus time")
-                        .font(.subheadline.weight(.semibold))
-                    ForEach(viewModel.categories) { category in
-                        Button {
-                            if allowedCategoryIds.contains(category.id) { allowedCategoryIds.remove(category.id) }
-                            else { allowedCategoryIds.insert(category.id) }
-                        } label: {
-                            HStack {
-                                Text("\(category.icon ?? "🔖") \(category.name)")
-                                Spacer()
-                                Image(systemName: allowedCategoryIds.contains(category.id) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(allowedCategoryIds.contains(category.id) ? .green : .secondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
+            Section("Off time") {
+                Toggle("Hide tasks during off time", isOn: $isEnabled)
+                Text("No tasks are scheduled during this time. It is useful for sleep or unavailable hours.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if isEnabled {
+                    Picker("From", selection: $start) {
+                        ForEach(Array(stride(from: 0, through: 23 * 60, by: 60)), id: \.self) { Text(time($0)).tag($0) }
                     }
-                    Text("All unselected categories are pushed outside the focus window.")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                Button("Add focus time") {
-                    viewModel.addFocusBlock(
-                        FocusBlock(name: name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Focus time" : name, weekdays: weekdays, startMinutes: start, endMinutes: end, allowedCategoryIds: allowedCategoryIds)
-                    )
-                }
-                .disabled(weekdays.isEmpty || end <= start)
-            }
-            Section("Your rules") {
-                ForEach(viewModel.focusBlocks) { block in
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(block.name).fontWeight(.semibold)
-                            Text("\(time(block.startMinutes)) – \(time(block.endMinutes))").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Text(allowedLabel(for: block)).foregroundStyle(.secondary)
+                    Picker("Until", selection: $end) {
+                        ForEach(Array(stride(from: 60, through: 24 * 60, by: 60)), id: \.self) { Text(time($0)).tag($0) }
                     }
-                }.onDelete { offsets in for index in offsets { viewModel.removeFocusBlock(id: viewModel.focusBlocks[index].id) } }
+                    Text("This repeats every day. It can span overnight, such as 10 PM to 7 AM.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
-        }.scrollContentBackground(.hidden)
+        }
+        .scrollContentBackground(.hidden)
+        .onAppear { load() }
+        .onChange(of: isEnabled) { _ in save() }
+        .onChange(of: start) { _ in save() }
+        .onChange(of: end) { _ in save() }
     }
+
     private func time(_ minutes: Int) -> String { String(format: "%d:%02d", minutes / 60, minutes % 60) }
-    private func allowedLabel(for block: FocusBlock) -> String {
-        if let id = block.categoryId { return "Pushes \(viewModel.categories.first { $0.id == id }?.name ?? "category")" }
-        if block.allowedCategoryIds.isEmpty { return "Pushes all categories" }
-        let names = viewModel.categories.filter { block.allowedCategoryIds.contains($0.id) }.map(\.name).joined(separator: ", ")
-        return "Allows \(names)"
+
+    private func load() {
+        guard let block = viewModel.focusBlocks.first else { return }
+        isEnabled = true
+        if let morningSegment = viewModel.focusBlocks.first(where: { $0.startMinutes == 0 }) {
+            start = block.startMinutes == 0
+                ? (viewModel.focusBlocks.first(where: { $0.endMinutes == 24 * 60 })?.startMinutes ?? 22 * 60)
+                : block.startMinutes
+            end = morningSegment.endMinutes
+        } else {
+            start = block.startMinutes
+            end = block.endMinutes
+        }
+    }
+
+    private func save() {
+        // The first release intentionally supports one global window only.
+        // Category- and profile-specific off time belong on the post-v1 roadmap.
+        viewModel.setOffTime(enabled: isEnabled, startMinutes: start, endMinutes: end)
     }
 }
 

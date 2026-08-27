@@ -1,11 +1,14 @@
 # PlanTapDo
 
-PlanTapDo is a personal task planner for iPhone and iPad. The repository now contains only the native SwiftUI client and its Django API; Android and desktop/web builds are intentionally out of scope.
+PlanTapDo is a local-first personal task planner for iPhone and iPad. Version 1
+ships without accounts or cloud sync; its authoritative product and release
+scope is in [PRODUCT_PLAN.md](PRODUCT_PLAN.md). Android, desktop, and web
+clients are intentionally out of scope.
 
 ## Repository layout
 
 - `ios/PlanTapDo`: SwiftUI application for iOS 16 and newer.
-- `backend`: Django 6 REST API, JWT authentication, authenticated Channels WebSockets, and a Supabase-ready private PostgreSQL schema.
+- `backend`: retained future cloud-sync prototype; it is not used by the v1 app.
 
 ## iOS app
 
@@ -19,13 +22,15 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
   CODE_SIGNING_ALLOWED=NO build
 ```
 
-The app provides Today, Future, Categories, and Settings tabs. Categories open into their own focused task lists, while Settings contains both general preferences and weekly reports. Tasks can repeat daily, weekly, monthly, or on selected weekdays, and completed tasks stay hidden unless **Show completed tasks** is enabled.
+The app provides Today, Upcoming, Tasks, and Settings tabs. Tasks can repeat
+daily, weekly, monthly, or on selected weekdays, and completed tasks stay hidden
+unless **Show completed tasks** is enabled. Recurrences are created on the day
+they occur rather than pre-generated into future dates.
 
 Tasks without a planned time remain simple list items; scheduled tasks appear on the vertical calendar. The live current-time line updates every second. Unstarted work is moved forward in the stored schedule without leaving a calendar ghost. Only a timer session created by pressing **Start** becomes historical calendar evidence; it remains visible after the task is completed.
 
-Cloud accounts keep a protected local cache and synchronize categories, tasks, timer sessions, travel times, and offline deletions with the Django API. A pending local upload is persisted across launches so a temporary network failure cannot turn the next server refresh into local data loss.
-
-The Debug configuration uses `http://127.0.0.1:8000/api/`. Release builds fail closed until the `API_BASE_URL` Xcode build setting is set to the deployed API's public `https://` URL. Cloud credentials are stored in the iOS Keychain; local workspace state is stored with complete file protection in Application Support.
+Version 1 stores workspace state locally with complete file protection in
+Application Support. There is no reachable account, login, or cloud-sync flow.
 
 Onboarding and payment are intentionally paused: their source files remain available for later work but are excluded from the application target. The current release opens directly into the core planner.
 
@@ -40,10 +45,8 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
 
 ### TestFlight archive
 
-Deploy the backend first and confirm that its public readiness endpoint returns
-HTTP 200. Then archive with the exact public API root; the trailing `/api/` is
-required. Release builds accept only HTTPS and deliberately disable cloud sync
-when this value is missing or invalid.
+Version 1 does not require a backend URL. Supply live privacy-policy and
+support URLs when archiving.
 
 ```bash
 xcodebuild -project ios/PlanTapDo.xcodeproj \
@@ -51,15 +54,14 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
   -configuration Release \
   -destination generic/platform=iOS \
   -archivePath build/PlanTapDo.xcarchive \
-  'API_BASE_URL=https://api.your-domain.example/api/' \
   'PRIVACY_POLICY_URL=https://www.your-domain.example/privacy' \
   'SUPPORT_URL=https://www.your-domain.example/support' \
   archive
 ```
 
-Both public links must be live before submission. The privacy policy link is
-shown inside Settings and must match the privacy-policy URL supplied in App
-Store Connect; the support page must include a working way to contact you.
+Both public links must be live before submission. The privacy policy must match
+the local-only data behavior described in `PRODUCT_PLAN.md`; the support page
+must include a working way to contact you.
 
 Use the repository's configured Apple team and automatic signing in Xcode, then
 validate and upload the archive from Organizer. Before each upload, increment
@@ -68,7 +70,7 @@ version. The production API URL, Apple distribution certificate/profile, and
 App Store Connect access are deployment credentials and are intentionally not
 stored in this repository.
 
-## Backend
+## Future cloud-sync prototype (not part of v1)
 
 Python 3.13 or newer is recommended for Django 6.
 
@@ -94,7 +96,7 @@ daphne -b 0.0.0.0 -p 8000 timetodo_api.asgi:application
 
 Production configuration is fail-closed: without the required secrets, transactional SMTP, explicit hosts, dedicated Supabase PostgreSQL role/schema, signed RLS tenant context, verified TLS, and Redis, the application refuses to start. Bootstrap the database with [backend/SUPABASE.md](backend/SUPABASE.md), then follow [backend/DEPLOYMENT.md](backend/DEPLOYMENT.md) for the release command, reverse-proxy requirements, health checks, key rotation, backups, and security verification. The dated risk register and accepted product boundaries are in [SECURITY_REVIEW.md](SECURITY_REVIEW.md).
 
-## API surface
+## Future API surface
 
 - `POST /api/auth/register/`
 - `POST /api/auth/email/verify/request/`

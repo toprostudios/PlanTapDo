@@ -49,6 +49,11 @@ class TodoViewModel: ObservableObject {
     @Published var showCompletedTasks: Bool {
         didSet { UserDefaults.standard.set(showCompletedTasks, forKey: "showCompletedTasks") }
     }
+    /// When enabled, starting another task records the current segment and
+    /// continues the unfinished work later in the schedule.
+    @Published var automaticallySwitchRunningTask: Bool {
+        didSet { UserDefaults.standard.set(automaticallySwitchRunningTask, forKey: "automaticallySwitchRunningTask") }
+    }
 
     // MARK: - Timer State
     @Published var activeTimerTodoId: UUID? = nil
@@ -91,11 +96,12 @@ class TodoViewModel: ObservableObject {
     func startTimer(for todo: TodoEntry) {
         guard let idx = todos.firstIndex(where: { $0.id == todo.id }) else { return }
 
+        let now = Date()
         if activeTimerTodoId != nil {
-            stopTimer()
+            guard automaticallySwitchRunningTask else { return }
+            handoffRunningTask(at: now)
         }
 
-        let now = Date()
         let originalTodo = todos[idx]
         let session = TimeSession(
             id: UUID(),
@@ -109,13 +115,11 @@ class TodoViewModel: ObservableObject {
         scheduleStartUndoExpiry()
 
         todos[idx].status = .inProgress
-        // Starting records actual work; it must not rewrite the plan. Replacing a
-        // task's day/time here made its calendar card jump away (or vanish) as
-        // soon as Start was tapped.
-        if todos[idx].plannedStartTime == nil {
-            todos[idx].doDate = Calendar.current.startOfDay(for: now)
-            todos[idx].plannedStartTime = Self.timeString(from: Self.minutes(from: now))
-        }
+        // A running task is the live schedule. Put its single calendar card at
+        // the moment it was started, then move the remaining pending cards out
+        // of its way. The timer session remains audit data, not a second block.
+        todos[idx].doDate = Calendar.current.startOfDay(for: now)
+        todos[idx].plannedStartTime = Self.timeString(from: Self.minutes(from: now))
         var sessions = todos[idx].timeSessions ?? []
         sessions.append(session)
         todos[idx].timeSessions = sessions
@@ -124,6 +128,60 @@ class TodoViewModel: ObservableObject {
 
         timerSecondsElapsed = 0
         startTimerTicker()
+        pushOverdueTasks(at: now)
+    }
+
+    var canStartAnotherTask: Bool {
+        activeTimerTodoId == nil || automaticallySwitchRunningTask
+    }
+
+    private func handoffRunningTask(at end: Date) {
+        guard let activeID = activeTimerTodoId,
+              let index = todos.firstIndex(where: { $0.id == activeID }) else {
+            clearTimerState()
+            return
+        }
+
+        let original = todos[index]
+        let elapsed: TimeInterval
+        if let session = original.timeSessions?.first(where: { $0.id == activeTimerSessionId }) {
+            elapsed = max(60, end.timeIntervalSince(session.start))
+        } else {
+            elapsed = max(60, TimeInterval(timerSecondsElapsed))
+        }
+        let remaining = max(0, original.plannedDuration - elapsed)
+
+        stopTimer()
+        guard let stoppedIndex = todos.firstIndex(where: { $0.id == activeID }) else { return }
+        // Preserve the completed recorded segment as this task's one card.
+        todos[stoppedIndex].plannedDuration = elapsed
+
+        // The unfinished portion remains a task and enters directly after the
+        // newly started task when the live schedule is reflowed.
+        guard remaining >= 60 else { return }
+        let continuation = TodoEntry(
+            id: UUID(),
+            title: original.title,
+            description: original.description,
+            doDate: Calendar.current.startOfDay(for: end),
+            dueDate: original.dueDate,
+            dueTime: original.dueTime,
+            descriptiveDeadline: original.descriptiveDeadline,
+            plannedStartTime: Self.timeString(from: Self.minutes(from: end)),
+            plannedDuration: remaining,
+            categoryId: original.categoryId,
+            status: .pending,
+            priority: original.priority,
+            location: original.location,
+            reminder: original.reminder,
+            notificationPreference: original.notificationPreference,
+            labels: original.labels,
+            timeSessions: nil,
+            subtasks: original.subtasks,
+            assigneeId: original.assigneeId,
+            recurrenceFrequency: .none
+        )
+        todos.append(continuation)
     }
 
     private func startTimerTicker() {
@@ -131,8 +189,23 @@ class TodoViewModel: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.timerSecondsElapsed += 1
+                // Reflow on the five-minute scheduler boundary. The card itself
+                // redraws every second from timerSecondsElapsed.
+                if self?.timerSecondsElapsed.isMultiple(of: 300) == true {
+                    self?.pushOverdueTasks()
+                }
             }
         }
+    }
+
+    /// The duration used by the calendar's one task card. A running task keeps
+    /// its planned size until it runs long, then grows with the stopwatch.
+    func calendarDuration(for todo: TodoEntry, at date: Date = Date()) -> TimeInterval {
+        let planned = max(60, todo.plannedDuration)
+        guard todo.id == activeTimerTodoId,
+              let session = todo.timeSessions?.first(where: { $0.id == activeTimerSessionId })
+        else { return planned }
+        return max(planned, date.timeIntervalSince(session.start))
     }
 
     func stopTimer() {
@@ -217,7 +290,9 @@ class TodoViewModel: ObservableObject {
             : fallbackAccounts
         // Preserve old local Team-demo workspace data, but do not expose its
         // account in the active app.
-        let restoredAccounts = storedAccounts.filter { $0.tier != "Pro Demo" }
+        // Version 1 is intentionally local-only. Do not restore or activate a
+        // legacy cloud account from an earlier development build.
+        let restoredAccounts = storedAccounts.filter { !$0.isCloudSynced && $0.tier != "Pro Demo" }
         let activeAccounts = restoredAccounts.isEmpty ? fallbackAccounts : restoredAccounts
         let restoredAccount = activeAccounts.first {
             $0.id == persistedState?.activeAccountID
@@ -226,7 +301,11 @@ class TodoViewModel: ObservableObject {
         self.userAccount = restoredAccount
         self.availableAccounts = activeAccounts
         self.showCompletedTasks = UserDefaults.standard.bool(forKey: "showCompletedTasks")
-        self.localWorkspaces = persistedState?.workspaces ?? [personalAccount.id: .empty]
+        self.automaticallySwitchRunningTask = (UserDefaults.standard.object(forKey: "automaticallySwitchRunningTask") as? Bool) ?? true
+        let persistedWorkspaces = persistedState?.workspaces ?? [personalAccount.id: .empty]
+        self.localWorkspaces = persistedWorkspaces.filter { accountID, _ in
+            activeAccounts.contains { $0.id == accountID }
+        }
 
         let workspace = localWorkspaces[restoredAccount.id] ?? .empty
         self.todos = workspace.todos
@@ -1017,7 +1096,7 @@ class TodoViewModel: ObservableObject {
         recurrenceWeekdays: [Int]? = nil
     ) {
         let recurrenceSeriesId = recurrenceFrequency == .none ? nil : UUID()
-        var newTodo = TodoEntry(
+        let newTodo = TodoEntry(
             id: UUID(),
             title: title,
             description: description,
@@ -1042,7 +1121,6 @@ class TodoViewModel: ObservableObject {
             recurrenceSeriesId: recurrenceSeriesId
         )
         todos.append(newTodo)
-        materializeRecurringOccurrences(from: newTodo)
     }
 
     func toggleComplete(_ todo: TodoEntry) {
@@ -1094,25 +1172,34 @@ class TodoViewModel: ObservableObject {
             updatedTodo.recurrenceSeriesId = UUID()
         }
         applyFocusRule(to: &updatedTodo)
-        let seriesAlreadyMaterialized = updatedTodo.recurrenceSeriesId.map { seriesId in
-            todos.contains { $0.id != updatedTodo.id && $0.recurrenceSeriesId == seriesId }
-        } ?? false
         if let index = todos.firstIndex(where: { $0.id == todo.id }) {
             todos[index] = updatedTodo
         }
-        if !seriesAlreadyMaterialized {
-            materializeRecurringOccurrences(from: updatedTodo)
+    }
+
+    /// v1 has one global off-time window. Per-profile and per-category
+    /// schedules are intentionally deferred until a later release.
+    func setOffTime(enabled: Bool, startMinutes: Int, endMinutes: Int) {
+        guard enabled, endMinutes != startMinutes else {
+            focusBlocks = []
+            saveActiveWorkspace()
+            return
         }
-    }
-
-    func addFocusBlock(_ block: FocusBlock) {
-        focusBlocks.append(block)
+        let everyDay = Set(1...7)
+        if endMinutes > startMinutes {
+            focusBlocks = [FocusBlock(
+                name: "Off time", weekdays: everyDay, startMinutes: startMinutes,
+                endMinutes: endMinutes, allowedCategoryIds: []
+            )]
+        } else {
+            // The storage model has same-day intervals, so one overnight
+            // account-wide window is represented by its two daily segments.
+            focusBlocks = [
+                FocusBlock(name: "Off time", weekdays: everyDay, startMinutes: startMinutes, endMinutes: 24 * 60, allowedCategoryIds: []),
+                FocusBlock(name: "Off time", weekdays: everyDay, startMinutes: 0, endMinutes: endMinutes, allowedCategoryIds: [])
+            ]
+        }
         applyFocusRulesToScheduledTasks()
-        saveActiveWorkspace()
-    }
-
-    func removeFocusBlock(id: UUID) {
-        focusBlocks.removeAll { $0.id == id }
         saveActiveWorkspace()
     }
 
@@ -1175,11 +1262,15 @@ class TodoViewModel: ObservableObject {
 
     func pushOverdueTasks(at currentDate: Date = Date()) {
         guard !isCloudSyncInFlight else { return }
+        materializeDueRecurringOccurrences(at: currentDate)
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: currentDate)
         let currentMinutes = calendar.component(.hour, from: currentDate) * 60
             + calendar.component(.minute, from: currentDate)
-        let roundedCurrentMinutes = max(7 * 60, Int(ceil(Double(currentMinutes) / 5.0) * 5.0))
+        // Pending tasks stay just ahead of the time bar when they are not
+        // started. At an exact five-minute boundary, use the following slot so
+        // the card is visibly pushed rather than remaining under the bar.
+        let roundedCurrentMinutes = max(7 * 60, (currentMinutes / 5 + 1) * 5)
 
         // An unfinished scheduled task simply moves forward. Only timer sessions
         // are historical calendar records; an abandoned plan never leaves a ghost.
@@ -1189,20 +1280,17 @@ class TodoViewModel: ObservableObject {
             todos[index].doDate = today
         }
 
-        // Scheduling is explicit. Do not move today's tasks later (or into
-        // tomorrow) merely because the current time has passed their slot.
-        return
-
         let scheduledIndices = todos.indices
             .filter { index in
                 let todo = todos[index]
                 return calendar.isDate(todo.doDate, inSameDayAs: today)
-                    && todo.status == .pending
-                    && todo.id != activeTimerTodoId
+                    && (todo.status == .pending || todo.id == activeTimerTodoId)
                     && todo.plannedStartTime != nil
             }
             .sorted { lhs, rhs in
-                (todos[lhs].plannedStartTime ?? "23:59") < (todos[rhs].plannedStartTime ?? "23:59")
+                if todos[lhs].id == activeTimerTodoId { return true }
+                if todos[rhs].id == activeTimerTodoId { return false }
+                return (todos[lhs].plannedStartTime ?? "23:59") < (todos[rhs].plannedStartTime ?? "23:59")
             }
 
         let movableIDs = Set(scheduledIndices.map { todos[$0].id })
@@ -1211,7 +1299,10 @@ class TodoViewModel: ObservableObject {
 
         for index in scheduledIndices {
             guard let time = todos[index].plannedStartTime else { continue }
-            let durationMinutes = min(15 * 60, max(5, Int(todos[index].plannedDuration / 60)))
+            let durationMinutes = min(
+                15 * 60,
+                max(5, Int(ceil(calendarDuration(for: todos[index], at: currentDate) / 60)))
+            )
             let earliestMinute = calendar.isDate(cursorDate, inSameDayAs: today)
                 ? max(Self.minutes(from: time), cursorMinute)
                 : cursorMinute
@@ -1331,13 +1422,8 @@ class TodoViewModel: ObservableObject {
         let durationMinutes = max(5, Int(todo.plannedDuration / 60))
         for _ in 0..<14 {
             let weekday = calendar.component(.weekday, from: candidateDate)
-            let applicable = focusBlocks.filter { block in
-                guard block.weekdays.contains(weekday) else { return false }
-                // Older per-category blocks remain supported; new blocks express the
-                // clearer rule that selected categories are allowed and all others move.
-                if let categoryId = block.categoryId { return categoryId != todo.categoryId }
-                return block.allowedCategoryIds.isEmpty || !block.allowedCategoryIds.contains(todo.categoryId ?? UUID())
-            }
+            // Off time is global in v1: no category can be scheduled inside it.
+            let applicable = focusBlocks.filter { $0.weekdays.contains(weekday) }
 
             while let block = applicable
                 .filter({ candidateMinute < $0.endMinutes && candidateMinute + durationMinutes > $0.startMinutes })
@@ -1349,6 +1435,58 @@ class TodoViewModel: ObservableObject {
             candidateMinute = 7 * 60
         }
         return (candidateDate, candidateMinute)
+    }
+
+    /// Recurrences are created only when their calendar day arrives. This keeps
+    /// Upcoming and Tasks from being filled with pre-generated daily copies.
+    private func materializeDueRecurringOccurrences(at currentDate: Date) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: currentDate)
+        let templates = todos.filter { $0.recurrenceFrequency != .none && $0.doDate < today }
+        for template in templates {
+            guard let seriesID = template.recurrenceSeriesId,
+                  recurrenceApplies(template, on: today),
+                  !todos.contains(where: {
+                      $0.recurrenceSeriesId == seriesID && calendar.isDate($0.doDate, inSameDayAs: today)
+                  }) else { continue }
+            todos.append(recurringOccurrence(from: template, on: today))
+        }
+    }
+
+    private func recurringOccurrence(from template: TodoEntry, on occurrenceDate: Date) -> TodoEntry {
+        let calendar = Calendar.current
+        let dueDateOffset = template.dueDate.map {
+            calendar.dateComponents([.day], from: calendar.startOfDay(for: template.doDate), to: calendar.startOfDay(for: $0)).day ?? 0
+        }
+        let occurrenceDueDate = dueDateOffset.flatMap { calendar.date(byAdding: .day, value: $0, to: occurrenceDate) }
+        return TodoEntry(
+            id: UUID(), title: template.title, description: template.description,
+            doDate: occurrenceDate, dueDate: occurrenceDueDate, dueTime: template.dueTime,
+            descriptiveDeadline: template.descriptiveDeadline, plannedStartTime: template.plannedStartTime,
+            plannedDuration: template.plannedDuration, categoryId: template.categoryId, status: .pending,
+            priority: template.priority, location: template.location, reminder: template.reminder,
+            notificationPreference: template.notificationPreference, labels: template.labels, timeSessions: nil,
+            subtasks: (template.subtasks ?? []).map { Subtask(id: UUID().uuidString, title: $0.title, isCompleted: false) },
+            assigneeId: template.assigneeId, recurrenceFrequency: template.recurrenceFrequency,
+            recurrenceWeekdays: template.recurrenceWeekdays, recurrenceSeriesId: template.recurrenceSeriesId
+        )
+    }
+
+    private func recurrenceApplies(_ template: TodoEntry, on date: Date) -> Bool {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: template.doDate)
+        guard date > start else { return false }
+        switch template.recurrenceFrequency {
+        case .none: return false
+        case .daily: return true
+        case .weekly:
+            return calendar.dateComponents([.day], from: start, to: date).day.map { $0 % 7 == 0 } ?? false
+        case .monthly:
+            return calendar.component(.day, from: start) == calendar.component(.day, from: date)
+        case .custom:
+            let weekdays = Set(template.recurrenceWeekdays ?? [calendar.component(.weekday, from: start)])
+            return weekdays.contains(calendar.component(.weekday, from: date))
+        }
     }
 
     private func materializeRecurringOccurrences(from template: TodoEntry) {
@@ -1401,14 +1539,9 @@ class TodoViewModel: ObservableObject {
     }
 
     private func ensureFutureOccurrence(after todo: TodoEntry) {
-        guard todo.recurrenceFrequency != .none,
-              let seriesId = todo.recurrenceSeriesId else { return }
-        let calendar = Calendar.current
-        guard let nextDate = recurrenceDates(after: todo).first else { return }
-        guard !todos.contains(where: {
-            $0.recurrenceSeriesId == seriesId && calendar.isDate($0.doDate, inSameDayAs: nextDate)
-        }) else { return }
-        materializeRecurringOccurrences(from: todo)
+        // Recurring tasks are deliberately created at midnight, not when the
+        // previous task is completed.
+        materializeDueRecurringOccurrences(at: Date())
     }
 
     private func recurrenceDates(after template: TodoEntry) -> [Date] {

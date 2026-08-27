@@ -21,7 +21,7 @@ struct ContentView: View {
 
                 CategoriesView(viewModel: viewModel)
                     .tabItem {
-                        Label("Categories", systemImage: "tag.fill")
+                        Label("Tasks", systemImage: "checklist")
                     }
                     .tag(2)
 
@@ -40,10 +40,9 @@ struct ContentView: View {
             )
             .accentColor(.indigo)
             .preferredColorScheme(viewModel.theme.preferredColorScheme)
-            .contrast(viewModel.theme.contrastAmount)
             .dismissKeyboardWhenBackgroundTapped()
             .onAppear {
-                viewModel.fetchTodos()
+                viewModel.pushOverdueTasks()
             }
             .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now in
                 viewModel.pushOverdueTasks(at: now)
@@ -61,7 +60,7 @@ struct ContentView: View {
     private func navigationTitle(for tab: Int) -> String {
         switch tab {
         case 0, 1: return ""
-        case 2: return "🏷️ Categories"
+        case 2: return "✓ Tasks"
         case 3: return "⚙️ Settings"
         default: return "PlanTapDo"
         }
