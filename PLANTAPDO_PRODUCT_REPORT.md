@@ -11,7 +11,7 @@ The hourly calendar scrolls vertically only. One-, three-, and seven-day columns
 
 ## Backend
 
-The Django 6 service exposes JWT registration/token endpoints, owner-filtered REST resources, full-state sync, and authenticated Channels WebSockets. Category, todo, time-session, and repeat-rule relationships are validated so one account cannot attach another account's data.
+The Django 6 service exposes JWT registration/token endpoints, owner-filtered REST resources, merge-based state sync with explicit deletion tombstones, and authenticated Channels WebSockets. Category, todo, time-session, and repeat-rule relationships are validated so one account cannot attach or delete another account's data. Client-generated timer-session IDs make a running timer recoverable across local persistence and server refreshes.
 
 Production security settings are environment-driven. Development can use SQLite and the in-memory channel layer; Postgres and Redis dependencies are available for deployment.
 

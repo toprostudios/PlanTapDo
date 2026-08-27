@@ -5,12 +5,20 @@ struct WorkspaceState: Codable {
     var categories: [Category]
     var locationTravelTimes: [String: Int]
     var focusBlocks: [FocusBlock]
+    var needsCloudSync: Bool
+    var deletedTodoIDs: Set<UUID>
+    var deletedCategoryIDs: Set<UUID>
+    var deletedSessionIDs: Set<UUID>
 
     static let empty = WorkspaceState(
         todos: [],
         categories: [],
         locationTravelTimes: [:],
-        focusBlocks: []
+        focusBlocks: [],
+        needsCloudSync: false,
+        deletedTodoIDs: [],
+        deletedCategoryIDs: [],
+        deletedSessionIDs: []
     )
 
     private enum CodingKeys: String, CodingKey {
@@ -19,29 +27,54 @@ struct WorkspaceState: Codable {
         case locationTravelTimes
         case focusBlocks
         case timeSessionsByTodoID
+        case needsCloudSync
+        case deletedTodoIDs
+        case deletedCategoryIDs
+        case deletedSessionIDs
     }
 
     init(
         todos: [TodoEntry],
         categories: [Category],
         locationTravelTimes: [String: Int],
-        focusBlocks: [FocusBlock]
+        focusBlocks: [FocusBlock],
+        needsCloudSync: Bool = false,
+        deletedTodoIDs: Set<UUID> = [],
+        deletedCategoryIDs: Set<UUID> = [],
+        deletedSessionIDs: Set<UUID> = []
     ) {
         self.todos = todos
         self.categories = categories
         self.locationTravelTimes = locationTravelTimes
         self.focusBlocks = focusBlocks
+        self.needsCloudSync = needsCloudSync
+        self.deletedTodoIDs = deletedTodoIDs
+        self.deletedCategoryIDs = deletedCategoryIDs
+        self.deletedSessionIDs = deletedSessionIDs
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        todos = try container.decode([TodoEntry].self, forKey: .todos)
-        categories = try container.decode([Category].self, forKey: .categories)
-        locationTravelTimes = try container.decode(
+        // New workspace sections must not make an older on-device state file
+        // undecodable. A missing key represents the empty state introduced by
+        // that version of the app.
+        todos = try container.decodeIfPresent([TodoEntry].self, forKey: .todos) ?? []
+        categories = try container.decodeIfPresent([Category].self, forKey: .categories) ?? []
+        locationTravelTimes = try container.decodeIfPresent(
             [String: Int].self,
             forKey: .locationTravelTimes
-        )
-        focusBlocks = try container.decode([FocusBlock].self, forKey: .focusBlocks)
+        ) ?? [:]
+        focusBlocks = try container.decodeIfPresent([FocusBlock].self, forKey: .focusBlocks) ?? []
+        needsCloudSync = try container.decodeIfPresent(Bool.self, forKey: .needsCloudSync) ?? false
+        deletedTodoIDs = try container.decodeIfPresent(Set<UUID>.self, forKey: .deletedTodoIDs) ?? []
+        deletedCategoryIDs = try container.decodeIfPresent(
+            Set<UUID>.self,
+            forKey: .deletedCategoryIDs
+        ) ?? []
+        deletedSessionIDs = try container.decodeIfPresent(
+            Set<UUID>.self,
+            forKey: .deletedSessionIDs
+        ) ?? []
         let sessions = try container.decodeIfPresent(
             [UUID: [TimeSession]].self,
             forKey: .timeSessionsByTodoID
@@ -57,6 +90,10 @@ struct WorkspaceState: Codable {
         try container.encode(categories, forKey: .categories)
         try container.encode(locationTravelTimes, forKey: .locationTravelTimes)
         try container.encode(focusBlocks, forKey: .focusBlocks)
+        try container.encode(needsCloudSync, forKey: .needsCloudSync)
+        try container.encode(deletedTodoIDs, forKey: .deletedTodoIDs)
+        try container.encode(deletedCategoryIDs, forKey: .deletedCategoryIDs)
+        try container.encode(deletedSessionIDs, forKey: .deletedSessionIDs)
         let sessions = Dictionary(
             todos.compactMap { todo in
                 todo.timeSessions.map { (todo.id, $0) }
@@ -103,6 +140,10 @@ struct AppStateStore {
             at: directoryURL,
             withIntermediateDirectories: true
         )
+        var protectedDirectoryURL = directoryURL
+        var resourceValues = URLResourceValues()
+        resourceValues.isExcludedFromBackup = true
+        try protectedDirectoryURL.setResourceValues(resourceValues)
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(state)

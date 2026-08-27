@@ -27,6 +27,9 @@
 		A1000021 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000021 /* Assets.xcassets */; };
 		A1000024 /* AppStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000024 /* AppStateStore.swift */; };
 		A1000025 /* CredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000025 /* CredentialStore.swift */; };
+		A1000027 /* LocalNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000027 /* LocalNotificationManager.swift */; };
+		A1000028 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000022 /* SubscriptionManager.swift */; };
+		A1000029 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000023 /* OnboardingView.swift */; };
 		A1000026 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B1000026 /* PrivacyInfo.xcprivacy */; };
 		A3000001 /* AppStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3000001 /* AppStateStoreTests.swift */; };
 		A3000002 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B3000002 /* XCTest.framework */; };
@@ -67,6 +70,7 @@
 		B1000024 /* AppStateStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateStore.swift; sourceTree = "<group>"; };
 		B1000025 /* CredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialStore.swift; sourceTree = "<group>"; };
 		B1000026 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		B1000027 /* LocalNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotificationManager.swift; sourceTree = "<group>"; };
 		B3000001 /* AppStateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateStoreTests.swift; sourceTree = "<group>"; };
 		B3000002 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 		C1000001 /* PlanTapDo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlanTapDo.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -125,6 +129,7 @@
 				B1000021 /* Assets.xcassets */,
 				B1000024 /* AppStateStore.swift */,
 				B1000025 /* CredentialStore.swift */,
+				B1000027 /* LocalNotificationManager.swift */,
 				B1000026 /* PrivacyInfo.xcprivacy */,
 				B1000022 /* SubscriptionManager.swift */,
 				B1000023 /* OnboardingView.swift */,
@@ -268,6 +273,9 @@
 				A1000020 /* ScreenContainer.swift in Sources */,
 				A1000024 /* AppStateStore.swift in Sources */,
 				A1000025 /* CredentialStore.swift in Sources */,
+				A1000027 /* LocalNotificationManager.swift in Sources */,
+				A1000028 /* SubscriptionManager.swift in Sources */,
+				A1000029 /* OnboardingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -411,6 +419,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				API_BASE_URL = "http://127.0.0.1:8000/api/";
+				PRIVACY_POLICY_URL = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -427,7 +436,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTED_PLATFORMS = iphoneos;
+				SUPPORT_URL = "";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -436,6 +446,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				API_BASE_URL = "";
+				PRIVACY_POLICY_URL = "";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -452,7 +463,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTED_PLATFORMS = iphoneos;
+				SUPPORT_URL = "";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -472,9 +484,10 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.plantapdo.app.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlanTapDo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlanTapDo";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlanTapDo.app/PlanTapDo";
 			};
 			name = Debug;
 		};
@@ -493,9 +506,10 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.plantapdo.app.tests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlanTapDo.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlanTapDo";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/PlanTapDo.app/PlanTapDo";
 			};
 			name = Release;
 		};

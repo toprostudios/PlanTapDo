@@ -2,7 +2,9 @@ import SwiftUI
 
 struct CategoriesView: View {
     @ObservedObject var viewModel: TodoViewModel
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @State private var showingAddCategory = false
+    @State private var showingPremiumUpgrade = false
     @State private var selectedCategoryToEdit: Category?
 
     var body: some View {
@@ -17,7 +19,11 @@ struct CategoriesView: View {
                     Spacer()
 
                     Button {
-                        showingAddCategory = true
+                        if viewModel.canAddCategory(isPremium: subscriptionManager.hasPremium) {
+                            showingAddCategory = true
+                        } else {
+                            showingPremiumUpgrade = true
+                        }
                     } label: {
                         Image(systemName: "plus")
                             .font(.headline.weight(.bold))
@@ -73,6 +79,10 @@ struct CategoriesView: View {
         .sheet(isPresented: $showingAddCategory) {
             AddCategoryView(viewModel: viewModel)
                 .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingPremiumUpgrade) {
+            PremiumUpgradeView()
+                .presentationDetents([.medium, .large])
         }
         .sheet(item: $selectedCategoryToEdit) { category in
             EditCategoryView(viewModel: viewModel, category: category)
@@ -256,6 +266,7 @@ private struct CategoryTaskComposerView: View {
     @State private var durationMinutes = 30
     @State private var recurrence: RecurrenceFrequency = .none
     @State private var selectedWeekdays = Set<Int>()
+    @State private var notificationPreference: NotificationPreference?
 
     var body: some View {
         NavigationStack {
@@ -266,6 +277,16 @@ private struct CategoryTaskComposerView: View {
                     TextField("Notes (optional)", text: $description, axis: .vertical)
                         .lineLimit(2...4)
                         .modernTextInput()
+                }
+
+                if hasPlannedTime {
+                    Section("Notification") {
+                        NotificationPreferencePicker(
+                            preference: $notificationPreference,
+                            inheritedPreference: viewModel.categories.first { $0.id == categoryId }?.notificationPreference,
+                            allowsInheritedDefault: true
+                        )
+                    }
                 }
 
                 Section("Schedule") {
@@ -325,6 +346,7 @@ private struct CategoryTaskComposerView: View {
             plannedStartTime: hasPlannedTime ? TodoEntry.apiTimeString(from: plannedTime) : nil,
             plannedDuration: TimeInterval(durationMinutes * 60),
             categoryId: categoryId,
+            notificationPreference: notificationPreference,
             recurrenceFrequency: recurrence,
             recurrenceWeekdays: recurrence == .custom
                 ? Array(
@@ -345,6 +367,7 @@ private struct EditCategoryView: View {
     @State private var name: String
     @State private var icon: String
     @State private var colorHex: String
+    @State private var notificationPreference: NotificationPreference?
 
     private let swatches = ["7C6FF7", "3ECF8E", "F5A623", "60A5FA", "EC4899", "F43F5E", "EAB308", "14B8A6"]
 
@@ -354,6 +377,7 @@ private struct EditCategoryView: View {
         _name = State(initialValue: category.name)
         _icon = State(initialValue: category.icon ?? "🔖")
         _colorHex = State(initialValue: category.colorHex)
+        _notificationPreference = State(initialValue: category.notificationPreference)
     }
 
     var body: some View {
@@ -402,6 +426,17 @@ private struct EditCategoryView: View {
                         }
                     }
                 }
+
+                Section("Default notifications") {
+                    NotificationPreferencePicker(
+                        preference: $notificationPreference,
+                        inheritedPreference: nil,
+                        allowsInheritedDefault: false
+                    )
+                    Text("Applies to timed tasks in this category unless a task has its own notification setting.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
             }
             .navigationTitle("Edit Category")
             .navigationBarTitleDisplayMode(.inline)
@@ -415,6 +450,7 @@ private struct EditCategoryView: View {
                         updated.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
                         updated.icon = icon.isEmpty ? "🔖" : icon
                         updated.colorHex = colorHex
+                        updated.notificationPreference = notificationPreference ?? .none
                         viewModel.updateCategory(updated)
                         dismiss()
                     }
@@ -426,12 +462,15 @@ private struct EditCategoryView: View {
     }
 }
 
-private struct AddCategoryView: View {
+struct AddCategoryView: View {
     @ObservedObject var viewModel: TodoViewModel
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    var onSave: (Category) -> Void = { _ in }
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var icon = "🎯"
     @State private var colorHex = "7C6FF7"
+    @State private var showingPremiumLimit = false
 
     private let swatches = ["7C6FF7", "3ECF8E", "F5A623", "60A5FA", "EC4899", "F43F5E", "EAB308", "14B8A6"]
 
@@ -490,16 +529,84 @@ private struct AddCategoryView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        viewModel.addCategory(
+                        guard let category = viewModel.addCategory(
                             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                             colorHex: colorHex,
-                            icon: icon.isEmpty ? "🔖" : icon
-                        )
+                            icon: icon.isEmpty ? "🔖" : icon,
+                            isPremium: subscriptionManager.hasPremium
+                        ) else {
+                            showingPremiumLimit = true
+                            return
+                        }
+                        onSave(category)
                         dismiss()
                     }
                     .fontWeight(.bold)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+            }
+            .alert("Premium unlocks unlimited categories", isPresented: $showingPremiumLimit) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text("Free accounts can create up to \(TodoViewModel.freeCategoryLimit) categories.")
+            }
+        }
+    }
+}
+
+private struct PremiumUpgradeView: View {
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 42, weight: .bold))
+                    .foregroundStyle(.indigo)
+                Text("PlanTapDo Premium")
+                    .font(.title.weight(.bold))
+                Text("Premium lets you create unlimited categories. More Premium features will be added over time.")
+                    .foregroundStyle(.secondary)
+
+                ForEach(SubscriptionManager.PremiumPlan.allCases) { plan in
+                    Button {
+                        Task {
+                            await subscriptionManager.purchase(plan)
+                            if subscriptionManager.hasPremium { dismiss() }
+                        }
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(plan.title).font(.headline)
+                                Text(plan.fallbackPrice).font(.subheadline)
+                            }
+                            Spacer()
+                            if subscriptionManager.isLoading { ProgressView() }
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(subscriptionManager.isLoading)
+                }
+
+                Button("Restore Purchases") {
+                    Task {
+                        await subscriptionManager.restorePurchases()
+                        if subscriptionManager.hasPremium { dismiss() }
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .disabled(subscriptionManager.isLoading)
+
+                if let errorMessage = subscriptionManager.errorMessage {
+                    Text(errorMessage).font(.caption).foregroundStyle(.red)
+                }
+                Spacer()
+            }
+            .padding(24)
+            .navigationTitle("Go Premium")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
         }
     }

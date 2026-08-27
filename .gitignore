@@ -24,6 +24,7 @@ __pycache__/
 *.key
 *.p12
 *.pfx
+backend/certs/*.crt
 
 # OS & Editor
 .DS_Store

@@ -11,11 +11,6 @@ struct TodayView: View {
         viewModel.todos(on: Date())
     }
 
-    private func overdueLabel(for todo: TodoEntry) -> String? {
-        guard let overdueDate = todo.overdueFromDate else { return nil }
-        return "OVERDUE · " + overdueDate.formatted(date: .abbreviated, time: .omitted)
-    }
-
     private func category(for categoryId: UUID?) -> Category? {
         guard let categoryId else { return nil }
         return viewModel.categories.first { $0.id == categoryId }
@@ -24,7 +19,7 @@ struct TodayView: View {
     var body: some View {
         Group {
             if viewModel.displayStyle == .list {
-                ScreenContainer(maxWidth: 600) {
+                ScreenContainer(maxWidth: .infinity) {
                     VStack(spacing: 12) {
                         pageHeader
                         layoutPicker
@@ -34,7 +29,6 @@ struct TodayView: View {
                                     todo: todo,
                                     category: category(for: todo.categoryId),
                                     viewModel: viewModel,
-                                    overdueLabel: overdueLabel(for: todo),
                                     onOpen: { selectedTodo = todo }
                                 )
                             }
@@ -115,6 +109,7 @@ struct TaskListRowView: View {
     var overdueLabel: String? = nil
     let onOpen: () -> Void
     var usesOuterPadding: Bool = true
+    @State private var showingDeleteConfirmation = false
 
     private var categoryColor: Color {
         Color(hex: category?.colorHex ?? "7C6FF7")
@@ -162,10 +157,11 @@ struct TaskListRowView: View {
                             .foregroundStyle(.red)
                     }
                 }
-                .frame(minWidth: 0, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if todo.status != .completed {
                 Button {
@@ -184,7 +180,20 @@ struct TaskListRowView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(isTimerActive ? "Stop \(todo.title)" : "Start \(todo.title)")
             }
+
+            Button {
+                showingDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.red)
+                    .frame(width: 34, height: 34)
+                    .background(Circle().fill(Color.red.opacity(0.12)))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Delete \(todo.title)")
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 10)
         .padding(.vertical, 9)
         .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.15)))
@@ -212,6 +221,16 @@ struct TaskListRowView: View {
                 Label("Delete Task", systemImage: "trash")
             }
         }
+        .confirmationDialog(
+            "Delete \"\(todo.title)\"?",
+            isPresented: $showingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Task", role: .destructive) {
+                viewModel.deleteTodo(id: todo.id)
+            }
+            Button("Cancel", role: .cancel) {}
+        }
     }
 }
 
@@ -229,6 +248,7 @@ struct TaskDetailView: View {
     @State private var categoryId: UUID?
     @State private var recurrenceFrequency: RecurrenceFrequency
     @State private var recurrenceWeekdays: Set<Int>
+    @State private var notificationPreference: NotificationPreference?
     @State private var showingDeleteConfirmation = false
 
     init(todo: TodoEntry, viewModel: TodoViewModel) {
@@ -243,6 +263,7 @@ struct TaskDetailView: View {
         _categoryId = State(initialValue: todo.categoryId)
         _recurrenceFrequency = State(initialValue: todo.recurrenceFrequency)
         _recurrenceWeekdays = State(initialValue: Set(todo.recurrenceWeekdays ?? []))
+        _notificationPreference = State(initialValue: todo.notificationPreference)
     }
 
     var body: some View {
@@ -266,12 +287,6 @@ struct TaskDetailView: View {
                 }
 
                 Section("Schedule") {
-                    if let overdueDate = todo.overdueFromDate {
-                        LabeledContent("Overdue") {
-                            Text(overdueDate.formatted(date: .long, time: .omitted))
-                                .foregroundStyle(.red)
-                        }
-                    }
                     DatePicker("Day", selection: $doDate, displayedComponents: .date)
                     Toggle("Set a time", isOn: $hasPlannedTime)
 
@@ -294,6 +309,19 @@ struct TaskDetailView: View {
                     }
                     if recurrenceFrequency == .custom {
                         WeekdaySelector(selectedWeekdays: $recurrenceWeekdays)
+                    }
+                }
+
+                if hasPlannedTime {
+                    Section("Notification") {
+                        NotificationPreferencePicker(
+                            preference: $notificationPreference,
+                            inheritedPreference: categoryId.flatMap { id in viewModel.categories.first { $0.id == id }?.notificationPreference },
+                            allowsInheritedDefault: true
+                        )
+                        Text("A notification is scheduled only when this task has a start time.")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -357,6 +385,7 @@ struct TaskDetailView: View {
         updatedTodo.plannedStartTime = hasPlannedTime ? TodoEntry.apiTimeString(from: plannedTime) : nil
         updatedTodo.plannedDuration = TimeInterval(durationMinutes * 60)
         updatedTodo.categoryId = categoryId
+        updatedTodo.notificationPreference = notificationPreference
         updatedTodo.recurrenceFrequency = recurrenceFrequency
         if recurrenceFrequency == .custom {
             let fallbackWeekday = Calendar.autoupdatingCurrent.component(.weekday, from: doDate)

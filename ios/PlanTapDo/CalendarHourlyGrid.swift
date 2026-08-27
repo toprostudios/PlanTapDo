@@ -1,6 +1,75 @@
 // CalendarHourlyGrid.swift
 import SwiftUI
 
+struct CalendarOverlapLayout {
+    static func compute(
+        for todos: [TodoEntry]
+    ) -> [UUID: (colIndex: Int, totalCols: Int)] {
+        struct Interval {
+            let id: UUID
+            let start: Double
+            let end: Double
+        }
+
+        let intervals = todos.map { todo -> Interval in
+            let parts = (todo.plannedStartTime ?? "09:00")
+                .split(separator: ":")
+                .compactMap { Double($0) }
+            let start = (parts.first ?? 9) * 60 + (parts.count > 1 ? parts[1] : 0)
+            return Interval(
+                id: todo.id,
+                start: start,
+                // Cards have a 52-point minimum height, equivalent to 52
+                // minutes at every zoom level. Use that rendered footprint so
+                // short adjacent tasks do not visually collide in one lane.
+                end: start + max(52, todo.plannedDuration / 60)
+            )
+        }
+        .sorted {
+            if $0.start == $1.start { return $0.id.uuidString < $1.id.uuidString }
+            return $0.start < $1.start
+        }
+
+        var result: [UUID: (colIndex: Int, totalCols: Int)] = [:]
+
+        func assignLanes(to cluster: [Interval]) {
+            var laneEnds: [Double] = []
+            var laneByID: [UUID: Int] = [:]
+
+            for interval in cluster {
+                if let availableLane = laneEnds.firstIndex(where: { $0 <= interval.start }) {
+                    laneEnds[availableLane] = interval.end
+                    laneByID[interval.id] = availableLane
+                } else {
+                    laneByID[interval.id] = laneEnds.count
+                    laneEnds.append(interval.end)
+                }
+            }
+
+            let totalColumns = max(1, laneEnds.count)
+            for interval in cluster {
+                result[interval.id] = (laneByID[interval.id] ?? 0, totalColumns)
+            }
+        }
+
+        var cluster: [Interval] = []
+        var clusterEnd = -Double.infinity
+        for interval in intervals {
+            if !cluster.isEmpty, interval.start >= clusterEnd {
+                assignLanes(to: cluster)
+                cluster.removeAll(keepingCapacity: true)
+                clusterEnd = -Double.infinity
+            }
+            cluster.append(interval)
+            clusterEnd = max(clusterEnd, interval.end)
+        }
+        if !cluster.isEmpty {
+            assignLanes(to: cluster)
+        }
+        return result
+    }
+}
+
 struct CalendarHourlyGrid: View {
     @ObservedObject var viewModel: TodoViewModel
     let date: Date
@@ -56,8 +125,7 @@ struct CalendarHourlyGrid: View {
     private var currentTimePx: CGFloat {
         let h = CGFloat(Calendar.current.component(.hour, from: now))
         let m = CGFloat(Calendar.current.component(.minute, from: now))
-        let s = CGFloat(Calendar.current.component(.second, from: now))
-        return ((h - 7.0) * 60.0 + m + (s / 60.0)) * pointsPerMinute
+        return ((h - 7.0) * 60.0 + m) * pointsPerMinute
     }
 
     private func dayTodos(for targetDate: Date) -> [TodoEntry] {
@@ -81,17 +149,6 @@ struct CalendarHourlyGrid: View {
                 let sessionEnd = session.end ?? now
                 return session.start < dayEnd && sessionEnd > dayStart
             }
-        }
-    }
-
-    private func plannedHistoryTodos(for targetDate: Date) -> [TodoEntry] {
-        let calendar = Calendar.current
-        return viewModel.todos.filter {
-            (calendar.isDate($0.doDate, inSameDayAs: targetDate)
-                || ($0.overdueFromDate.map { calendar.isDate($0, inSameDayAs: targetDate) } ?? false))
-                && $0.plannedStartTime?.isEmpty == false
-                && $0.originalPlannedStartTime != nil
-                && $0.originalPlannedStartTime != $0.plannedStartTime
         }
     }
 
@@ -154,32 +211,7 @@ struct CalendarHourlyGrid: View {
     }
 
     private func computeOverlapLayouts(for targetDate: Date) -> [UUID: (colIndex: Int, totalCols: Int)] {
-        let sorted = dayTodos(for: targetDate).map { t -> (todo: TodoEntry, startMin: Double, endMin: Double) in
-            let parts = (t.plannedStartTime ?? "09:00").split(separator: ":").compactMap { Double($0) }
-            let h = parts.first ?? 9.0
-            let m = parts.count > 1 ? parts[1] : 0.0
-            let startMin = h * 60.0 + m
-            let endMin = startMin + (t.plannedDuration / 60.0)
-            return (t, startMin, endMin)
-        }
-
-        var map: [UUID: (colIndex: Int, totalCols: Int)] = [:]
-
-        for item in sorted {
-            let overlaps = sorted.filter { other in
-                other.todo.id != item.todo.id && item.startMin < other.endMin && item.endMin > other.startMin
-            }
-
-            if overlaps.isEmpty {
-                map[item.todo.id] = (0, 1)
-            } else {
-                let cluster = ([item] + overlaps).sorted { $0.todo.id.uuidString < $1.todo.id.uuidString }
-                let colIdx = cluster.firstIndex(where: { $0.todo.id == item.todo.id }) ?? 0
-                map[item.todo.id] = (colIdx, cluster.count)
-            }
-        }
-
-        return map
+        CalendarOverlapLayout.compute(for: dayTodos(for: targetDate))
     }
 
     var body: some View {
@@ -193,12 +225,10 @@ struct CalendarHourlyGrid: View {
 
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    Label("Planned", systemImage: "square.dashed")
+                    Label("Scheduled", systemImage: "calendar")
                         .foregroundStyle(.secondary)
-                    Label("Actual", systemImage: "square.fill")
+                    Label("Recorded work", systemImage: "timer")
                         .foregroundStyle(.indigo)
-                    Label("Unplanned", systemImage: "square.fill")
-                        .foregroundStyle(.black)
                 }
                 .font(.system(size: 9, weight: .semibold))
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -323,46 +353,14 @@ struct CalendarHourlyGrid: View {
                                                 }
                                             }
 
-                                            // Original schedule remains visible after a task is pushed or dragged.
-                                            ForEach(plannedHistoryTodos(for: colDate)) { todo in
-                                                if let history = plannedHistoryMetrics(for: todo) {
-                                                    let historyColor = Color(hex: category(for: todo.categoryId)?.colorHex ?? "7C6FF7")
-                                                    RoundedRectangle(cornerRadius: 7)
-                                                        .fill(historyColor.opacity(0.35))
-                                                        .overlay {
-                                                            RoundedRectangle(cornerRadius: 7)
-                                                                .stroke(historyColor.opacity(0.55), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
-                                                        }
-                                                        .frame(width: max(35, geo.size.width - 4), height: history.height)
-                                                        .overlay(alignment: .topLeading) {
-                                                            if !isCompactLayout && geo.size.width >= 105 {
-                                                                Text("PLANNED WORK")
-                                                                    .font(.system(size: 7, weight: .black))
-                                                                    .foregroundStyle(historyColor)
-                                                                    .padding(4)
-                                                            }
-                                                        }
-                                                        .offset(x: 2, y: history.top)
-                                                        .zIndex(0)
-                                                }
-                                            }
-
-                                            // Recorded timer sessions are the solid history laid over the plan.
+                                            // Only recorded timer sessions leave calendar history.
                                             ForEach(historyTodosForDay) { todo in
                                                 ForEach(todo.timeSessions ?? []) { session in
                                                     if let actual = actualSessionMetrics(for: session, on: colDate) {
                                                         let sessionColor = actualSessionColor(for: todo)
                                                         RoundedRectangle(cornerRadius: 5)
-                                                            .fill(sessionColor.opacity(0.88))
+                                                            .fill(sessionColor.opacity(0.55))
                                                             .frame(width: max(25, geo.size.width - 10), height: actual.height)
-                                                            .overlay(alignment: .topLeading) {
-                                                                if !isCompactLayout && geo.size.width >= 105 {
-                                                                    Text("ACTUAL WORK")
-                                                                        .font(.system(size: 7, weight: .black))
-                                                                        .foregroundStyle(.white)
-                                                                        .padding(3)
-                                                                }
-                                                            }
                                                             .offset(x: 5, y: actual.top)
                                                             .zIndex(1)
                                                     }
@@ -434,7 +432,7 @@ struct CalendarHourlyGrid: View {
                                         .contentShape(Rectangle())
                                         .gesture(SpatialTapGesture().onEnded { value in
                                             guard value.location.x > 0 else { return }
-                                            let minute = max(7 * 60, min(22 * 60, 7 * 60 + Int((value.location.y / hourHeight).rounded()) * 60))
+                                            let minute = max(7 * 60, min(22 * 60 + 59, 7 * 60 + Int((value.location.y / pointsPerMinute).rounded())))
                                             draftStart = Calendar.current.date(bySettingHour: minute / 60, minute: minute % 60, second: 0, of: colDate) ?? colDate
                                             showingCalendarAdd = true
                                         }, including: .gesture)
@@ -464,11 +462,9 @@ struct CalendarHourlyGrid: View {
             now = Date()
             viewModel.pushOverdueTasks(at: now)
         }
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { input in
+        .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { input in
             now = input
-            if Calendar.current.component(.second, from: input) == 0 {
-                viewModel.pushOverdueTasks(at: input)
-            }
+            viewModel.pushOverdueTasks(at: input)
         }
         .sheet(isPresented: $showingCalendarAdd) {
             TaskComposerView(viewModel: viewModel, start: draftStart)
@@ -495,17 +491,7 @@ struct CalendarHourlyGrid: View {
         let plannedDurationPx = CGFloat(todo.plannedDuration / 60.0) * pointsPerMinute
         let heightPx = max(52 * effectiveCalendarScale, plannedDurationPx)
         let plannedMinutes = Int(todo.plannedDuration / 60.0)
-        let isPushed = todo.originalPlannedStartTime != nil
-            && todo.originalPlannedStartTime != todo.plannedStartTime
-
-        return (plannedStartPx, heightPx, isPushed, plannedMinutes)
-    }
-
-    private func plannedHistoryMetrics(for todo: TodoEntry) -> (top: CGFloat, height: CGFloat)? {
-        guard let time = todo.originalPlannedStartTime ?? todo.plannedStartTime else { return nil }
-        let start = CGFloat(Self.minutes(from: time) - 7 * 60) * pointsPerMinute
-        let height = max(12 * effectiveCalendarScale, CGFloat(todo.plannedDuration / 60) * pointsPerMinute)
-        return (max(0, start), height)
+        return (plannedStartPx, heightPx, false, plannedMinutes)
     }
 
     private func actualSessionMetrics(for session: TimeSession, on targetDate: Date) -> (top: CGFloat, height: CGFloat)? {
@@ -520,12 +506,16 @@ struct CalendarHourlyGrid: View {
         guard clippedEnd > clippedStart else { return nil }
 
         let top = CGFloat(clippedStart.timeIntervalSince(gridStart) / 60) * pointsPerMinute
-        let height = max(4 * effectiveCalendarScale, CGFloat(clippedEnd.timeIntervalSince(clippedStart) / 60) * pointsPerMinute)
+        // A recorded session is a quiet timeline marker, not a second task
+        // card. In particular, a running timer must not cover the calendar.
+        let height = max(
+            4 * effectiveCalendarScale,
+            min(12 * effectiveCalendarScale, CGFloat(clippedEnd.timeIntervalSince(clippedStart) / 60) * pointsPerMinute)
+        )
         return (top, height)
     }
 
     private func actualSessionColor(for todo: TodoEntry) -> Color {
-        guard todo.originalPlannedStartTime != nil else { return .black }
         return Color(hex: category(for: todo.categoryId)?.colorHex ?? "7C6FF7")
     }
 
@@ -589,6 +579,8 @@ struct TaskComposerView: View {
     @State private var startDate: Date
     @State private var duration = 30
     @State private var categoryId: UUID?
+    @State private var notificationPreference: NotificationPreference?
+    @State private var showingAddCategory = false
 
     init(viewModel: TodoViewModel, start: Date, showsSchedule: Bool = true) {
         self.viewModel = viewModel
@@ -601,14 +593,6 @@ struct TaskComposerView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(showsSchedule ? "Plan something ahead" : "What needs doing today?")
-                            .font(.title2.weight(.bold))
-                        Text(showsSchedule ? "Give it a time, then make it happen." : "Capture it now — you can schedule it later.")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-
                     VStack(spacing: 0) {
                         TextField("Task name", text: $title)
                             .font(.headline)
@@ -654,6 +638,18 @@ struct TaskComposerView: View {
                         }
                         .padding(16)
                         .background(RoundedRectangle(cornerRadius: 16).fill(Color(uiColor: .secondarySystemGroupedBackground)))
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Notification", systemImage: "bell")
+                                .font(.headline)
+                            NotificationPreferencePicker(
+                                preference: $notificationPreference,
+                                inheritedPreference: categoryId.flatMap { id in viewModel.categories.first { $0.id == id }?.notificationPreference },
+                                allowsInheritedDefault: true
+                            )
+                        }
+                        .padding(16)
+                        .background(RoundedRectangle(cornerRadius: 16).fill(Color(uiColor: .secondarySystemGroupedBackground)))
                     }
 
                     VStack(alignment: .leading, spacing: 10) {
@@ -664,6 +660,13 @@ struct TaskComposerView: View {
                             ForEach(viewModel.categories) { category in
                                 Text("\(category.icon ?? "🔖") \(category.name)").tag(Optional(category.id))
                             }
+                            Divider()
+                            Text("Add new category…").tag(Optional(Self.newCategoryOptionID))
+                        }
+                        .onChange(of: categoryId) { newValue in
+                            guard newValue == Self.newCategoryOptionID else { return }
+                            categoryId = nil
+                            showingAddCategory = true
                         }
                         .pickerStyle(.menu)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -696,7 +699,15 @@ struct TaskComposerView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingAddCategory) {
+            AddCategoryView(viewModel: viewModel) { category in
+                categoryId = category.id
+            }
+            .presentationDetents([.medium])
+        }
     }
+
+    private static let newCategoryOptionID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
     private func durationLabel(_ minutes: Int) -> String {
         minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h"
@@ -709,7 +720,8 @@ struct TaskComposerView: View {
             doDate: startDate,
             plannedStartTime: showsSchedule ? TodoEntry.apiTimeString(from: startDate) : nil,
             plannedDuration: TimeInterval(duration * 60),
-            categoryId: categoryId
+            categoryId: categoryId,
+            notificationPreference: showsSchedule ? notificationPreference : nil
         )
         dismiss()
     }
@@ -791,7 +803,9 @@ struct CalendarCardView: View {
                 .buttonStyle(.plain)
             }
 
-            if todo.status != .completed && showsCardText && containerWidth >= 100 {
+            Spacer(minLength: 0)
+
+            if todo.status != .completed && showsCardText && colWidth >= 100 {
                 Button {
                     if isTimerActive {
                         viewModel.stopTimer()
@@ -806,9 +820,20 @@ struct CalendarCardView: View {
                     .background(Circle().fill(isTimerActive ? Color.red : Color.indigo))
                 }
                 .buttonStyle(.plain)
-            }
 
-            Spacer(minLength: 0)
+                Button {
+                    viewModel.finishTodo(id: todo.id)
+                } label: {
+                    Text("Finish")
+                        .font(.system(size: 9, weight: .black))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .frame(height: 28)
+                        .background(Capsule().fill(Color.green))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Finish \(todo.title)")
+            }
         }
         .padding(6)
         .background(

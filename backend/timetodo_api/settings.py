@@ -6,11 +6,15 @@ will refuse to start instead of falling back to insecure defaults.
 """
 
 from datetime import timedelta
+import base64
+import hashlib
 import os
 from pathlib import Path
+import re
 import secrets
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
+from cryptography.fernet import Fernet
 from django.core.exceptions import ImproperlyConfigured
 
 
@@ -157,6 +161,10 @@ ASGI_APPLICATION = "timetodo_api.asgi.application"
 AUTH_USER_MODEL = "timetodo_api.User"
 
 
+DATABASE_ROLE = os.getenv("DATABASE_ROLE", "runtime").strip().lower()
+if DATABASE_ROLE not in {"runtime", "migration"}:
+    raise ImproperlyConfigured("DATABASE_ROLE must be runtime or migration.")
+
 if IS_PRODUCTION:
     required_database_settings = {
         name: os.getenv(name, "").strip()
@@ -175,6 +183,53 @@ if IS_PRODUCTION:
             "Production PostgreSQL configuration is incomplete: "
             + ", ".join(missing_database_settings)
         )
+
+    postgres_schema = os.getenv("POSTGRES_SCHEMA", "").strip()
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*", postgres_schema):
+        raise ImproperlyConfigured(
+            "POSTGRES_SCHEMA is required in production and must be a lowercase "
+            "PostgreSQL identifier."
+        )
+    reserved_postgres_schemas = {
+        "auth",
+        "extensions",
+        "graphql_public",
+        "public",
+        "realtime",
+        "storage",
+        "supabase_functions",
+        "vault",
+    }
+    if postgres_schema in reserved_postgres_schemas:
+        raise ImproperlyConfigured(
+            "POSTGRES_SCHEMA must be a private application schema, not a "
+            "Supabase-managed or Data API schema."
+        )
+    if postgres_schema != "plantapdo":
+        raise ImproperlyConfigured(
+            "POSTGRES_SCHEMA must be plantapdo because the reviewed RLS policies "
+            "and security schema use that fixed namespace."
+        )
+
+    database_username = required_database_settings["POSTGRES_USER"].split(".", 1)[0]
+    expected_database_username = {
+        "runtime": "plantapdo_runtime",
+        "migration": "plantapdo_migrator",
+    }[DATABASE_ROLE]
+    if database_username != expected_database_username:
+        raise ImproperlyConfigured(
+            f"DATABASE_ROLE={DATABASE_ROLE} requires the dedicated "
+            f"{expected_database_username} database role."
+        )
+    validate_production_secret(
+        "POSTGRES_PASSWORD",
+        required_database_settings["POSTGRES_PASSWORD"],
+        minimum_length=32,
+    )
+
+    postgres_port = env_int("POSTGRES_PORT", 5432, minimum=1)
+    if postgres_port > 65535:
+        raise ImproperlyConfigured("POSTGRES_PORT must be at most 65535.")
 
     postgres_sslmode = os.getenv("POSTGRES_SSLMODE", "verify-full").strip().lower()
     if postgres_sslmode != "verify-full":
@@ -199,23 +254,67 @@ if IS_PRODUCTION:
             "USER": required_database_settings["POSTGRES_USER"],
             "PASSWORD": required_database_settings["POSTGRES_PASSWORD"],
             "HOST": required_database_settings["POSTGRES_HOST"],
-            "PORT": os.getenv("POSTGRES_PORT", "5432"),
+            "PORT": postgres_port,
             "CONN_MAX_AGE": env_int("POSTGRES_CONN_MAX_AGE", 60),
             "CONN_HEALTH_CHECKS": True,
+            "ATOMIC_REQUESTS": True,
             "OPTIONS": {
                 "sslmode": postgres_sslmode,
                 "sslrootcert": postgres_sslrootcert,
                 "connect_timeout": env_int("POSTGRES_CONNECT_TIMEOUT", 5, minimum=1),
+                # Do not include ``public`` as a fallback. If the private
+                # Supabase schema was not bootstrapped, connections and
+                # migrations must fail instead of creating API-visible tables.
+                "options": f"-c search_path={postgres_schema}",
+                "application_name": os.getenv(
+                    "POSTGRES_APPLICATION_NAME", f"plantapdo-{DATABASE_ROLE}"
+                ),
             },
         }
     }
+    POSTGRES_SCHEMA = postgres_schema
 else:
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",
             "NAME": BASE_DIR / "db.sqlite3",
+            "ATOMIC_REQUESTS": True,
         }
     }
+
+
+DB_TENANT_CONTEXT_KEY = os.getenv("DB_TENANT_CONTEXT_KEY", "").strip()
+if IS_PRODUCTION:
+    if not re.fullmatch(r"[0-9a-f]{128}", DB_TENANT_CONTEXT_KEY):
+        raise ImproperlyConfigured(
+            "DB_TENANT_CONTEXT_KEY must be exactly 128 lowercase hexadecimal "
+            "characters in staging/production."
+        )
+    DB_TENANT_CONTEXT_KEY_BYTES = bytes.fromhex(DB_TENANT_CONTEXT_KEY)
+else:
+    DB_TENANT_CONTEXT_KEY_BYTES = hashlib.sha256(
+        (DB_TENANT_CONTEXT_KEY or SECRET_KEY).encode("utf-8")
+    ).digest()
+
+
+MFA_ENCRYPTION_KEY = os.getenv("MFA_ENCRYPTION_KEY", "").strip()
+if not MFA_ENCRYPTION_KEY and not IS_PRODUCTION:
+    MFA_ENCRYPTION_KEY = base64.urlsafe_b64encode(
+        hashlib.sha256(("mfa:" + SECRET_KEY).encode("utf-8")).digest()
+    ).decode("ascii")
+MFA_ENCRYPTION_KEY_FALLBACKS = env_list("MFA_ENCRYPTION_KEY_FALLBACKS")
+if MFA_ENCRYPTION_KEY in MFA_ENCRYPTION_KEY_FALLBACKS or len(
+    set(MFA_ENCRYPTION_KEY_FALLBACKS)
+) != len(MFA_ENCRYPTION_KEY_FALLBACKS):
+    raise ImproperlyConfigured(
+        "MFA_ENCRYPTION_KEY_FALLBACKS must be unique and exclude the active key."
+    )
+MFA_ENCRYPTION_KEYS = [MFA_ENCRYPTION_KEY, *MFA_ENCRYPTION_KEY_FALLBACKS]
+for mfa_key in MFA_ENCRYPTION_KEYS:
+    try:
+        Fernet(mfa_key.encode("ascii"))
+    except (ValueError, UnicodeEncodeError) as exc:
+        raise ImproperlyConfigured("MFA encryption keys must be Fernet keys.") from exc
 
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -275,6 +374,9 @@ REST_FRAMEWORK = {
         "token_refresh": os.getenv("THROTTLE_TOKEN_REFRESH_RATE", "30/minute"),
         "token_verify": os.getenv("THROTTLE_TOKEN_VERIFY_RATE", "30/minute"),
         "sync": os.getenv("THROTTLE_SYNC_RATE", "30/minute"),
+        "account_email": os.getenv("THROTTLE_ACCOUNT_EMAIL_RATE", "5/hour"),
+        "account_code": os.getenv("THROTTLE_ACCOUNT_CODE_RATE", "10/hour"),
+        "logout": os.getenv("THROTTLE_LOGOUT_RATE", "30/minute"),
     },
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     "NUM_PROXIES": env_int("DJANGO_NUM_PROXIES", 0),
@@ -374,6 +476,49 @@ DATA_UPLOAD_MAX_NUMBER_FIELDS = env_int("DJANGO_MAX_FORM_FIELDS", 1000, 1)
 DATA_UPLOAD_MAX_NUMBER_FILES = 0
 
 
+ACCOUNT_CATEGORY_QUOTA = env_int("ACCOUNT_CATEGORY_QUOTA", 500, minimum=1)
+ACCOUNT_TODO_QUOTA = env_int("ACCOUNT_TODO_QUOTA", 5_000, minimum=1)
+ACCOUNT_TRAVEL_TIME_QUOTA = env_int("ACCOUNT_TRAVEL_TIME_QUOTA", 1_000, minimum=1)
+ACCOUNT_TIME_SESSION_QUOTA = env_int("ACCOUNT_TIME_SESSION_QUOTA", 50_000, minimum=1)
+ACCOUNT_REPEAT_RULE_QUOTA = env_int("ACCOUNT_REPEAT_RULE_QUOTA", 10_000, minimum=1)
+ACCOUNT_ACTIVE_SESSION_QUOTA = env_int("ACCOUNT_ACTIVE_SESSION_QUOTA", 20, minimum=1)
+
+
+if IS_PRODUCTION:
+    if os.getenv("EMAIL_BACKEND", "").strip() != "django.core.mail.backends.smtp.EmailBackend":
+        raise ImproperlyConfigured(
+            "Production EMAIL_BACKEND must use Django's SMTP backend."
+        )
+    required_email_settings = {
+        name: os.getenv(name, "").strip()
+        for name in ("EMAIL_HOST", "EMAIL_HOST_USER", "EMAIL_HOST_PASSWORD", "DEFAULT_FROM_EMAIL")
+    }
+    missing_email_settings = [
+        name for name, value in required_email_settings.items() if not value
+    ]
+    if missing_email_settings:
+        raise ImproperlyConfigured(
+            "Production email configuration is incomplete: "
+            + ", ".join(missing_email_settings)
+        )
+    if not env_bool("EMAIL_USE_TLS", True):
+        raise ImproperlyConfigured("Production SMTP must use TLS.")
+
+EMAIL_BACKEND = os.getenv(
+    "EMAIL_BACKEND",
+    "django.core.mail.backends.locmem.EmailBackend"
+    if ENVIRONMENT == "test"
+    else "django.core.mail.backends.console.EmailBackend",
+)
+EMAIL_HOST = os.getenv("EMAIL_HOST", "")
+EMAIL_PORT = env_int("EMAIL_PORT", 587, minimum=1)
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", True)
+EMAIL_TIMEOUT = env_int("EMAIL_TIMEOUT", 10, minimum=1)
+DEFAULT_FROM_EMAIL = os.getenv("DEFAULT_FROM_EMAIL", "PlanTapDo <no-reply@plantapdo.app>")
+
+
 REDIS_URL = os.getenv("REDIS_URL", "").strip()
 if IS_PRODUCTION and not REDIS_URL:
     raise ImproperlyConfigured(
@@ -389,6 +534,18 @@ if IS_PRODUCTION:
         )
     if parsed_redis_url.fragment:
         raise ImproperlyConfigured("Production REDIS_URL cannot contain a fragment.")
+    redis_query = {
+        key: [value.casefold() for value in values]
+        for key, values in parse_qs(parsed_redis_url.query).items()
+    }
+    if redis_query.get("ssl_cert_reqs") != ["required"]:
+        raise ImproperlyConfigured(
+            "Production REDIS_URL must set ssl_cert_reqs=required."
+        )
+    if redis_query.get("ssl_check_hostname") not in (["true"], ["yes"], ["1"]):
+        raise ImproperlyConfigured(
+            "Production REDIS_URL must set ssl_check_hostname=true."
+        )
 
 if REDIS_URL:
     CACHES = {

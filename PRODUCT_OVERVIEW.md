@@ -9,6 +9,7 @@ PlanTapDo is a personal planning app that combines a straightforward to-do list,
 - Time is optional. Scheduled tasks appear on the calendar; unscheduled tasks remain list items.
 - The calendar follows the day vertically and never requires horizontal scrolling.
 - The current-time line keeps an overdue, unstarted task in front of the user by pushing it down until work begins.
+- Moving an unstarted task never creates history. Only work actually recorded after pressing Start remains on the calendar.
 - Start and Stop are prominent, direct controls tied to the active task.
 - Accounts are personal. Account management belongs in Settings, and there is no team-management view.
 
@@ -32,4 +33,4 @@ Manage the personal account, cloud registration, appearance, and local sample da
 
 ## Cloud service
 
-The Django API provides JWT-authenticated personal accounts, owner-isolated task and category storage, sync endpoints, time-session resources, and authenticated WebSocket updates. The only supported client in this repository is the native iOS app.
+The Django API provides JWT-authenticated personal accounts, owner-isolated task and category storage, durable local/cloud synchronization (including timer sessions and offline deletions), and authenticated WebSocket updates. The only supported client in this repository is the native iOS app.

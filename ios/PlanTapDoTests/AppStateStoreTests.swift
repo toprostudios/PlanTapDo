@@ -74,6 +74,10 @@ final class AppStateStoreTests: XCTestCase {
         XCTAssertEqual(restoredTodo.title, todo.title)
         XCTAssertEqual(restoredTodo.plannedDuration, todo.plannedDuration)
         XCTAssertEqual(restoredTodo.timeSessions, [session])
+        let directoryValues = try directory.resourceValues(
+            forKeys: [.isExcludedFromBackupKey]
+        )
+        XCTAssertEqual(directoryValues.isExcludedFromBackup, true)
     }
 
     func testAuthTokensCanBeEncodedForKeychainStorage() throws {
@@ -82,7 +86,7 @@ final class AppStateStoreTests: XCTestCase {
         XCTAssertEqual(try JSONDecoder().decode(APIClient.AuthTokens.self, from: data), tokens)
     }
 
-    func testNewScheduleDoesNotCreatePlannedHistory() throws {
+    func testTaskEncodingDoesNotContainLegacyCalendarGhostFields() throws {
         let todo = TodoEntry(
             id: UUID(),
             title: "Scheduled task",
@@ -104,11 +108,149 @@ final class AppStateStoreTests: XCTestCase {
             assigneeId: nil
         )
 
-        XCTAssertNil(todo.originalPlannedStartTime)
-
         let encoded = try JSONEncoder().encode(todo)
-        let decoded = try JSONDecoder().decode(TodoEntry.self, from: encoded)
-        XCTAssertNil(decoded.originalPlannedStartTime)
+        let object = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        )
+        XCTAssertNil(object["originalPlannedStartTime"])
+        XCTAssertNil(object["overdueFromDate"])
+    }
+
+    func testLegacyWorkspaceWithoutNewSectionsStillDecodes() throws {
+        let data = try XCTUnwrap(
+            """
+            {"todos":[],"categories":[]}
+            """.data(using: .utf8)
+        )
+
+        let workspace = try JSONDecoder().decode(WorkspaceState.self, from: data)
+
+        XCTAssertTrue(workspace.todos.isEmpty)
+        XCTAssertTrue(workspace.categories.isEmpty)
+        XCTAssertTrue(workspace.locationTravelTimes.isEmpty)
+        XCTAssertTrue(workspace.focusBlocks.isEmpty)
+        XCTAssertFalse(workspace.needsCloudSync)
+        XCTAssertTrue(workspace.deletedTodoIDs.isEmpty)
+    }
+
+    func testStartingScheduledTaskCreatesOnlyActualSessionHistory() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        viewModel.createTodo(title: "Planned work", plannedStartTime: "09:00")
+        let todo = try XCTUnwrap(viewModel.todos.first)
+
+        viewModel.startTimer(for: todo)
+        addTeardownBlock { viewModel.undoLastStart() }
+
+        XCTAssertEqual(viewModel.todos.first?.status, .inProgress)
+        XCTAssertEqual(viewModel.todos.first?.timeSessions?.count, 1)
+        XCTAssertNotNil(viewModel.todos.first?.timeSessions?.first?.start)
+    }
+
+    func testStartingUnscheduledTaskSchedulesItAtItsActualStart() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        viewModel.createTodo(title: "Unplanned work")
+        let todo = try XCTUnwrap(viewModel.todos.first)
+
+        viewModel.startTimer(for: todo)
+        addTeardownBlock { viewModel.undoLastStart() }
+
+        XCTAssertNotNil(viewModel.todos.first?.plannedStartTime)
+        XCTAssertEqual(viewModel.todos.first?.timeSessions?.count, 1)
+    }
+
+    func testFreeAccountsAreLimitedToTwoCategories() {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+
+        XCTAssertNotNil(viewModel.addCategory(name: "One", colorHex: "7C6FF7", icon: "1", isPremium: false))
+        XCTAssertNotNil(viewModel.addCategory(name: "Two", colorHex: "3ECF8E", icon: "2", isPremium: false))
+        XCTAssertNil(viewModel.addCategory(name: "Three", colorHex: "F5A623", icon: "3", isPremium: false))
+        XCTAssertEqual(viewModel.categories.count, TodoViewModel.freeCategoryLimit)
+        XCTAssertNotNil(viewModel.addCategory(name: "Premium", colorHex: "60A5FA", icon: "4", isPremium: true))
+    }
+
+    func testStartingTaskThatIsNotInWorkspaceDoesNotCreateOrphanTimer() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        viewModel.createTodo(title: "Already deleted")
+        let missingTodo = try XCTUnwrap(viewModel.todos.first)
+        viewModel.deleteTodo(id: missingTodo.id)
+
+        viewModel.startTimer(for: missingTodo)
+
+        XCTAssertNil(viewModel.activeTimerTodoId)
+        let noTick = expectation(description: "No orphan ticker fires")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.1) {
+            XCTAssertEqual(viewModel.timerSecondsElapsed, 0)
+            noTick.fulfill()
+        }
+        waitForExpectations(timeout: 2)
+    }
+
+    func testOverdueTasksOverflowAcrossDaysWithoutColliding() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar.current
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 21, minute: 50))
+        )
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: now))
+
+        viewModel.createTodo(
+            title: "Existing tomorrow",
+            doDate: tomorrow,
+            plannedStartTime: "07:00",
+            plannedDuration: 3_600
+        )
+        viewModel.createTodo(
+            title: "First pushed",
+            doDate: now,
+            plannedStartTime: "20:00",
+            plannedDuration: 1_800
+        )
+        viewModel.createTodo(
+            title: "Second pushed",
+            doDate: now,
+            plannedStartTime: "20:30",
+            plannedDuration: 1_800
+        )
+
+        viewModel.pushOverdueTasks(at: now)
+
+        let first = try XCTUnwrap(viewModel.todos.first { $0.title == "First pushed" })
+        let second = try XCTUnwrap(viewModel.todos.first { $0.title == "Second pushed" })
+        XCTAssertTrue(calendar.isDate(first.doDate, inSameDayAs: tomorrow))
+        XCTAssertTrue(calendar.isDate(second.doDate, inSameDayAs: tomorrow))
+        XCTAssertEqual(first.plannedStartTime, "08:00")
+        XCTAssertEqual(second.plannedStartTime, "08:30")
+    }
+
+    func testCalendarOverlapLayoutUsesStableLanesForTransitiveCluster() {
+        let first = makeTodo(
+            title: "First",
+            plannedStartTime: "09:00",
+            plannedDuration: 3_600
+        )
+        let middle = makeTodo(
+            title: "Middle",
+            plannedStartTime: "09:30",
+            plannedDuration: 3_600
+        )
+        let last = makeTodo(
+            title: "Last",
+            plannedStartTime: "10:00",
+            plannedDuration: 3_600
+        )
+
+        let layout = CalendarOverlapLayout.compute(for: [first, middle, last])
+
+        XCTAssertEqual(layout[first.id]?.totalCols, 2)
+        XCTAssertEqual(layout[middle.id]?.totalCols, 2)
+        XCTAssertEqual(layout[last.id]?.totalCols, 2)
+        XCTAssertEqual(layout[first.id]?.colIndex, layout[last.id]?.colIndex)
+        XCTAssertNotEqual(layout[first.id]?.colIndex, layout[middle.id]?.colIndex)
     }
 
     func testServerValidationErrorsAreReadable() throws {
@@ -247,9 +389,7 @@ final class AppStateStoreTests: XCTestCase {
     }
 
     func testWorkspaceStateSafelyHandlesDuplicateTodoIDsDuringEncoding() throws {
-        let todoID = UUID()
         let todo1 = makeTodo(title: "Task 1")
-        var todo2 = makeTodo(title: "Task 2")
         // Same ID simulating sync collision
         let mirrorTodo = TodoEntry(
             id: todo1.id,
@@ -282,7 +422,11 @@ final class AppStateStoreTests: XCTestCase {
         XCTAssertNoThrow(try JSONEncoder().encode(state))
     }
 
-    private func makeTodo(title: String) -> TodoEntry {
+    private func makeTodo(
+        title: String,
+        plannedStartTime: String? = nil,
+        plannedDuration: TimeInterval = 1_800
+    ) -> TodoEntry {
         TodoEntry(
             id: UUID(),
             title: title,
@@ -291,8 +435,8 @@ final class AppStateStoreTests: XCTestCase {
             dueDate: nil,
             dueTime: nil,
             descriptiveDeadline: nil,
-            plannedStartTime: nil,
-            plannedDuration: 1_800,
+            plannedStartTime: plannedStartTime,
+            plannedDuration: plannedDuration,
             categoryId: nil,
             status: .pending,
             priority: nil,

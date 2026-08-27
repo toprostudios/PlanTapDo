@@ -4,18 +4,28 @@ import SwiftUI
 private enum CloudAuthMode: String, CaseIterable, Identifiable {
     case signIn = "Sign In"
     case create = "Create Account"
+    case reset = "Reset Password"
 
     var id: String { rawValue }
 }
 
 struct AccountView: View {
     @ObservedObject var viewModel: TodoViewModel
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
 
     @State private var newUsername = ""
     @State private var newEmail = ""
     @State private var newPassword = ""
     @State private var showingAddForm = false
     @State private var authMode: CloudAuthMode = .signIn
+    @State private var emailCode = ""
+    @State private var mfaCode = ""
+    @State private var mfaPassword = ""
+    @State private var mfaEnrollmentCode = ""
+    @State private var showingRevokeAllConfirmation = false
+    @State private var showingDeleteAccount = false
+    @State private var deletionPassword = ""
+    @State private var deletionMFACode = ""
 
     var body: some View {
         ScrollView {
@@ -36,7 +46,7 @@ struct AccountView: View {
                                 HStack {
                                     Text(viewModel.userAccount.name)
                                         .font(.headline.weight(.bold))
-                                    Text("👑 \(viewModel.userAccount.tier)")
+                                    Text("👑 \(subscriptionManager.hasPremium ? "Premium" : viewModel.userAccount.tier)")
                                         .font(.caption2.weight(.heavy))
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)
@@ -64,6 +74,10 @@ struct AccountView: View {
                                     viewModel.signOutCloudAccount()
                                 }
                                 .font(.caption.weight(.semibold))
+                                Button("Everywhere", role: .destructive) {
+                                    showingRevokeAllConfirmation = true
+                                }
+                                .font(.caption.weight(.semibold))
                             }
                         }
                     }
@@ -71,28 +85,12 @@ struct AccountView: View {
                     .background(RoundedRectangle(cornerRadius: 16).fill(Color.primary.opacity(0.05)))
                     .padding(.horizontal)
 
-                    if viewModel.isProReviewDemo {
-                        NavigationLink {
-                            ProTeamReviewView(viewModel: viewModel)
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: "person.3.fill")
-                                    .font(.title3)
-                                    .foregroundStyle(.indigo)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text("Review team days")
-                                        .font(.subheadline.weight(.semibold))
-                                }
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.bold))
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(14)
-                            .background(RoundedRectangle(cornerRadius: 14).fill(Color.indigo.opacity(0.09)))
-                        }
-                        .buttonStyle(.plain)
-                        .padding(.horizontal)
+                    if viewModel.userAccount.isCloudSynced {
+                        mfaSecurityCard
+                            .padding(.horizontal)
+
+                        accountDeletionCard
+                            .padding(.horizontal)
                     }
 
                     // Switch Accounts List Section
@@ -113,67 +111,62 @@ struct AccountView: View {
 
                         if showingAddForm {
                             VStack(spacing: 10) {
-                                Picker("Cloud account action", selection: $authMode) {
-                                    ForEach(CloudAuthMode.allCases) { mode in
-                                        Text(mode.rawValue).tag(mode)
+                                if let email = viewModel.pendingVerificationEmail {
+                                    verificationForm(email: email)
+                                } else if let email = viewModel.pendingPasswordResetEmail {
+                                    passwordResetConfirmationForm(email: email)
+                                } else {
+                                    Picker("Cloud account action", selection: $authMode) {
+                                        ForEach(CloudAuthMode.allCases) { mode in
+                                            Text(mode.rawValue).tag(mode)
+                                        }
                                     }
-                                }
-                                .pickerStyle(.segmented)
+                                    .pickerStyle(.segmented)
 
-                                TextField("Username", text: $newUsername)
-                                    .modernTextInput()
-                                    .textInputAutocapitalization(.never)
-                                    .autocorrectionDisabled()
-
-                                if authMode == .create {
-                                    TextField("Email Address", text: $newEmail)
-                                        .modernTextInput()
-                                        .textInputAutocapitalization(.never)
-                                        .keyboardType(.emailAddress)
-                                }
-
-                                SecureField("Password", text: $newPassword)
-                                    .modernTextInput()
-
-                                if authMode == .create && !newPassword.isEmpty && newPassword.count < 15 {
-                                    Text("Use at least 15 characters.")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-
-                                if let errorMessage = viewModel.errorMessage {
-                                    Text(errorMessage)
-                                        .font(.caption)
-                                        .foregroundStyle(.red)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-
-                                Button(authMode.rawValue) {
-                                    if authMode == .create {
-                                        guard !newUsername.isEmpty,
-                                              !newEmail.isEmpty,
-                                              !newPassword.isEmpty else { return }
-                                        viewModel.registerAndSwitchAccount(
-                                            username: newUsername,
-                                            email: newEmail,
-                                            password: newPassword
-                                        )
-                                    } else {
-                                        viewModel.loginAndSwitchAccount(
-                                            username: newUsername,
-                                            password: newPassword
-                                        )
+                                    if authMode != .reset {
+                                        TextField("Username", text: $newUsername)
+                                            .modernTextInput()
+                                            .textInputAutocapitalization(.never)
+                                            .autocorrectionDisabled()
                                     }
+
+                                    if authMode != .signIn {
+                                        TextField("Email Address", text: $newEmail)
+                                            .modernTextInput()
+                                            .textInputAutocapitalization(.never)
+                                            .keyboardType(.emailAddress)
+                                    }
+
+                                    if authMode != .reset {
+                                        SecureField("Password", text: $newPassword)
+                                            .modernTextInput()
+                                    }
+
+                                    if authMode == .signIn {
+                                        TextField("MFA or Recovery Code (if enabled)", text: $mfaCode)
+                                            .modernTextInput()
+                                            .textInputAutocapitalization(.characters)
+                                            .autocorrectionDisabled()
+                                    }
+
+                                    if authMode == .create,
+                                       !newPassword.isEmpty,
+                                       newPassword.count < 15 {
+                                        Text("Use at least 15 characters.")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .frame(maxWidth: .infinity, alignment: .leading)
+                                    }
+
+                                    Button(authMode.rawValue) {
+                                        performAuthAction()
+                                    }
+                                    .buttonStyle(.borderedProminent)
+                                    .tint(.indigo)
+                                    .disabled(authActionDisabled)
                                 }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.indigo)
-                                .disabled(
-                                    viewModel.isLoading
-                                        || newUsername.isEmpty
-                                        || (authMode == .create ? newPassword.count < 15 : newPassword.isEmpty)
-                                        || (authMode == .create && newEmail.isEmpty)
-                                )
+
+                                accountFeedback
                             }
                             .padding(12)
                             .background(RoundedRectangle(cornerRadius: 12).fill(Color.secondary.opacity(0.12)))
@@ -231,25 +224,262 @@ struct AccountView: View {
         .navigationTitle("Accounts")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: viewModel.userAccount.id) { _ in
-            guard viewModel.userAccount.isCloudSynced else { return }
+            if !viewModel.userAccount.isCloudSynced {
+                showingDeleteAccount = false
+                deletionPassword = ""
+                deletionMFACode = ""
+                return
+            }
             newUsername = ""
             newEmail = ""
             newPassword = ""
             showingAddForm = false
         }
+        .confirmationDialog(
+            "Sign out on every device?",
+            isPresented: $showingRevokeAllConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Revoke Every Session", role: .destructive) {
+                viewModel.revokeAllSessionsAndSignOut()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Every phone, tablet, and copied token will need to sign in again.")
+        }
+        .sheet(isPresented: $showingDeleteAccount) {
+            accountDeletionSheet
+        }
+    }
+
+    private var accountDeletionCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("DELETE CLOUD ACCOUNT")
+                .font(.caption2.weight(.heavy))
+                .foregroundStyle(.secondary)
+            Text("Permanently remove this account")
+                .font(.subheadline.weight(.semibold))
+            Text("This deletes the cloud account and all synced tasks, categories, and recorded work. This cannot be undone.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("Delete Cloud Account", role: .destructive) {
+                showingDeleteAccount = true
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.red.opacity(0.06)))
+    }
+
+    private var accountDeletionSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Permanent deletion") {
+                    Text("All synced tasks, categories, timer history, sessions, and account credentials will be permanently deleted.")
+                        .font(.callout)
+                    SecureField("Current password", text: $deletionPassword)
+                        .textContentType(.password)
+                    TextField("MFA or recovery code (if enabled)", text: $deletionMFACode)
+                        .textInputAutocapitalization(.characters)
+                        .autocorrectionDisabled()
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        viewModel.deleteCloudAccount(
+                            password: deletionPassword,
+                            mfaCode: deletionMFACode
+                        )
+                    } label: {
+                        HStack {
+                            if viewModel.isLoading { ProgressView() }
+                            Text("Delete Account Permanently")
+                        }
+                    }
+                    .disabled(deletionPassword.isEmpty || viewModel.isLoading)
+                } footer: {
+                    if let errorMessage = viewModel.errorMessage {
+                        Text(errorMessage).foregroundStyle(.red)
+                    }
+                }
+            }
+            .navigationTitle("Delete Account")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        deletionPassword = ""
+                        deletionMFACode = ""
+                        showingDeleteAccount = false
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func verificationForm(email: String) -> some View {
+        Text("Enter the 8-digit code sent to \(email).")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        TextField("Verification Code", text: $emailCode)
+            .modernTextInput()
+            .keyboardType(.numberPad)
+        Button("Verify Email") {
+            viewModel.confirmEmailAndSwitchAccount(email: email, code: emailCode)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(viewModel.isLoading || emailCode.count != 8)
+        Button("Resend Code") {
+            viewModel.resendEmailVerification(email: email)
+        }
+        .font(.caption.weight(.semibold))
+    }
+
+    @ViewBuilder
+    private func passwordResetConfirmationForm(email: String) -> some View {
+        Text("Enter the code sent to \(email), then choose a new password.")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        TextField("Reset Code", text: $emailCode)
+            .modernTextInput()
+            .keyboardType(.numberPad)
+        SecureField("New Password", text: $newPassword)
+            .modernTextInput()
+        Button("Update Password") {
+            viewModel.confirmPasswordReset(
+                email: email,
+                code: emailCode,
+                newPassword: newPassword
+            )
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(
+            viewModel.isLoading || emailCode.count != 8 || newPassword.count < 15
+        )
+    }
+
+    @ViewBuilder
+    private var accountFeedback: some View {
+        if let errorMessage = viewModel.errorMessage {
+            Text(errorMessage)
+                .font(.caption)
+                .foregroundStyle(.red)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if let accountMessage = viewModel.accountMessage {
+            Text(accountMessage)
+                .font(.caption)
+                .foregroundStyle(.green)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var mfaSecurityCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("ACCOUNT SECURITY")
+                .font(.caption2.weight(.heavy))
+                .foregroundStyle(.secondary)
+            Text(viewModel.isMFAEnabled ? "MFA is enabled" : "Authenticator MFA")
+                .font(.subheadline.weight(.semibold))
+
+            if let secret = viewModel.mfaSetupSecret {
+                Text("Authenticator setup key")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(secret)
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                TextField("6-digit authenticator code", text: $mfaEnrollmentCode)
+                    .modernTextInput()
+                    .keyboardType(.numberPad)
+                Button("Enable MFA") {
+                    viewModel.confirmMFA(code: mfaEnrollmentCode)
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(mfaEnrollmentCode.count != 6 || viewModel.isLoading)
+            } else {
+                SecureField("Current Password", text: $mfaPassword)
+                    .modernTextInput()
+                if viewModel.isMFAEnabled {
+                    TextField("MFA or Recovery Code", text: $mfaEnrollmentCode)
+                        .modernTextInput()
+                        .textInputAutocapitalization(.characters)
+                    Button("Disable MFA", role: .destructive) {
+                        viewModel.disableMFA(
+                            password: mfaPassword,
+                            code: mfaEnrollmentCode
+                        )
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(
+                        mfaPassword.isEmpty || mfaEnrollmentCode.isEmpty || viewModel.isLoading
+                    )
+                } else {
+                    Button("Start MFA Setup") {
+                        viewModel.startMFASetup(password: mfaPassword)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(mfaPassword.isEmpty || viewModel.isLoading)
+                }
+            }
+
+            if !viewModel.mfaRecoveryCodes.isEmpty {
+                Text("Recovery codes — save these once")
+                    .font(.caption.weight(.semibold))
+                Text(viewModel.mfaRecoveryCodes.joined(separator: "\n"))
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+            }
+            accountFeedback
+        }
+        .padding(16)
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.primary.opacity(0.03)))
+    }
+
+    private var authActionDisabled: Bool {
+        viewModel.isLoading
+            || (authMode != .reset && newUsername.isEmpty)
+            || (authMode == .create && newPassword.count < 15)
+            || (authMode == .signIn && newPassword.isEmpty)
+            || (authMode != .signIn && newEmail.isEmpty)
+    }
+
+    private func performAuthAction() {
+        switch authMode {
+        case .create:
+            viewModel.registerAndSwitchAccount(
+                username: newUsername,
+                email: newEmail,
+                password: newPassword
+            )
+        case .signIn:
+            viewModel.loginAndSwitchAccount(
+                username: newUsername,
+                password: newPassword,
+                mfaCode: mfaCode
+            )
+        case .reset:
+            viewModel.requestPasswordReset(email: newEmail)
+        }
     }
 
     private var accountStatusLabel: String {
         if viewModel.userAccount.isCloudSynced { return "☁️ Cloud Synced" }
-        return viewModel.isProReviewDemo ? "👥 Local Pro Review" : "📱 Personal Workspace"
+        return "📱 Personal Workspace"
     }
 
     private var accountStatusColor: Color {
         if viewModel.userAccount.isCloudSynced { return .green }
-        return viewModel.isProReviewDemo ? .indigo : .secondary
+        return .secondary
     }
 }
 
+#if TEAM_VIEW_ENABLED
+// Deactivated: preserved for a future team-feature rollout. TEAM_VIEW_ENABLED
+// is intentionally not defined in any build configuration.
 struct ProTeamReviewView: View {
     @ObservedObject var viewModel: TodoViewModel
     @State private var selectedPersonID: UUID?
@@ -335,16 +565,93 @@ struct ProTeamReviewView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(alignment: .top, spacing: 10) {
                 ForEach(viewModel.teamReviewPeople) { person in
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(person.name).font(.subheadline.weight(.bold))
-                        ForEach(viewModel.todos.filter { $0.assigneeId == person.id.uuidString && Calendar.current.isDateInToday($0.doDate) }.sorted { ($0.plannedStartTime ?? "23:59") < ($1.plannedStartTime ?? "23:59") }) { task in
-                            VStack(alignment: .leading, spacing: 2) { Text(task.plannedStartTime ?? "Any time").font(.caption2.weight(.bold)); Text(task.title).font(.caption).lineLimit(2) }
-                                .padding(8).frame(width: 145, alignment: .leading).background(RoundedRectangle(cornerRadius: 8).fill(Color.indigo.opacity(0.13)))
+                    TeamMemberScheduleView(
+                        person: person,
+                        tasks: viewModel.todos.filter {
+                            $0.assigneeId == person.id.uuidString && Calendar.current.isDateInToday($0.doDate)
                         }
-                    }.frame(width: 165, alignment: .leading).padding(10).background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+                    )
                 }
             }
         }
+    }
+}
+
+/// An at-a-glance, time-positioned schedule for each person rather than a
+/// "next task" placeholder. The same task data remains available in Team mode.
+private struct TeamMemberScheduleView: View {
+    let person: UserAccount
+    let tasks: [TodoEntry]
+    private let startHour = 7
+    private let endHour = 20
+    private let hourHeight: CGFloat = 42
+
+    private var scheduleHeight: CGFloat { CGFloat(endHour - startHour) * hourHeight }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(person.name).font(.subheadline.weight(.bold))
+                Spacer()
+                Text("Today").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            }
+
+            GeometryReader { geo in
+                ZStack(alignment: .topLeading) {
+                    VStack(spacing: 0) {
+                        ForEach(startHour..<endHour, id: \.self) { hour in
+                            HStack(alignment: .top) {
+                                Text(hourLabel(hour))
+                                    .font(.system(size: 8, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 34, alignment: .leading)
+                                Rectangle().fill(Color.secondary.opacity(0.16)).frame(height: 1)
+                            }
+                            .frame(height: hourHeight, alignment: .top)
+                        }
+                    }
+
+                    ForEach(tasks.filter { $0.plannedStartTime != nil }) { task in
+                        let minutes = minutes(from: task.plannedStartTime ?? "07:00")
+                        let top = CGFloat(minutes - startHour * 60) / 60 * hourHeight
+                        let height = max(28, CGFloat(task.plannedDuration / 60) / 60 * hourHeight)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(task.plannedStartTime ?? "")
+                                .font(.system(size: 8, weight: .black))
+                            Text(task.title)
+                                .font(.system(size: 9, weight: .bold))
+                                .lineLimit(2)
+                        }
+                        .foregroundStyle(.white)
+                        .padding(5)
+                        .frame(width: max(70, geo.size.width - 40), height: height, alignment: .topLeading)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(task.status == .completed ? Color.green : Color.indigo))
+                        .offset(x: 38, y: max(0, top))
+                    }
+                }
+            }
+            .frame(height: scheduleHeight)
+
+            if tasks.isEmpty {
+                Text("No work scheduled")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 205, alignment: .leading)
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
+    }
+
+    private func minutes(from time: String) -> Int {
+        let values = time.split(separator: ":").compactMap { Int($0) }
+        guard values.count == 2 else { return startHour * 60 }
+        return values[0] * 60 + values[1]
+    }
+
+    private func hourLabel(_ hour: Int) -> String {
+        let display = hour % 12 == 0 ? 12 : hour % 12
+        return "\(display) \(hour >= 12 ? "PM" : "AM")"
     }
 }
 
@@ -352,7 +659,7 @@ private struct TeamTaskReviewRow: View {
     let task: TodoEntry
 
     private var planned: String {
-        guard let start = task.originalPlannedStartTime ?? task.plannedStartTime else { return "Unscheduled" }
+        guard let start = task.plannedStartTime else { return "Unscheduled" }
         let duration = max(1, task.plannedDuration / 60)
         return "Planned: \(start) · \(duration)m"
     }
@@ -385,6 +692,7 @@ private struct TeamTaskReviewRow: View {
         .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.05)))
     }
 }
+#endif
 
 struct AccountView_Previews: PreviewProvider {
     static var previews: some View { AccountView(viewModel: TodoViewModel()) }

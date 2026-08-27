@@ -17,6 +17,12 @@ time_validator = RegexValidator(
 class User(AbstractUser):
     """Extend AbstractUser for user profile and settings."""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email_verified_at = models.DateTimeField(blank=True, null=True)
+    session_version = models.PositiveIntegerField(default=1)
+    mfa_enabled = models.BooleanField(default=False)
+    mfa_secret_encrypted = models.TextField(blank=True, default="")
+    mfa_pending_secret_encrypted = models.TextField(blank=True, default="")
+    mfa_recovery_code_hashes = models.JSONField(default=list, blank=True)
 
     class Meta(AbstractUser.Meta):
         constraints = [
@@ -26,6 +32,47 @@ class User(AbstractUser):
                 condition=~models.Q(email=""),
                 name="unique_email_casefolded",
             ),
+        ]
+
+
+class AuthChallenge(models.Model):
+    class Kind(models.TextChoices):
+        VERIFY_EMAIL = "verify_email", "Verify email"
+        RESET_PASSWORD = "reset_password", "Reset password"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="auth_challenges")
+    kind = models.CharField(max_length=20, choices=Kind.choices)
+    code_digest = models.CharField(max_length=128)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["user", "kind", "created_at"],
+                name="challenge_user_kind_idx",
+            )
+        ]
+
+
+class UserSession(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sessions")
+    client_label = models.CharField(max_length=100, blank=True, default="PlanTapDo")
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+    expires_at = models.DateTimeField()
+    revoked_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=["user", "revoked_at", "expires_at"],
+                name="session_user_active_idx",
+            )
         ]
 
 class Category(models.Model):
@@ -38,6 +85,7 @@ class Category(models.Model):
     )
     icon = models.CharField(max_length=10, blank=True, null=True, default="📁")
     notes = models.TextField(blank=True, null=True, default="", max_length=10_000)
+    notification_preference = models.CharField(max_length=40, default="none")
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="categories")
 
     def __str__(self):
@@ -78,10 +126,6 @@ class TodoEntry(models.Model):
     planned_start_time = models.CharField(
         max_length=10, blank=True, null=True, validators=[time_validator]
     )
-    original_planned_start_time = models.CharField(
-        max_length=10, blank=True, null=True, validators=[time_validator]
-    )
-    overdue_from_date = models.CharField(max_length=50, blank=True, null=True)
     planned_duration = models.PositiveIntegerField(
         default=30,
         help_text="Minutes",
@@ -99,6 +143,7 @@ class TodoEntry(models.Model):
     priority = models.CharField(max_length=20, choices=Priority.choices, default=Priority.MEDIUM)
     location = models.CharField(max_length=200, blank=True, null=True)
     reminder = models.CharField(max_length=100, blank=True, null=True)
+    notification_preference = models.CharField(max_length=40, blank=True, null=True)
     labels = models.JSONField(default=list, blank=True)
     subtasks = models.JSONField(default=list, blank=True)
     assignee_id = models.CharField(max_length=100, blank=True, null=True)

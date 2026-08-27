@@ -12,6 +12,14 @@ struct SettingsView: View {
     @ObservedObject var viewModel: TodoViewModel
     @State private var selectedSection: SettingsSection = .general
 
+    private var privacyPolicyURL: URL? {
+        configuredHTTPSURL(forInfoKey: "PRIVACY_POLICY_URL")
+    }
+
+    private var supportURL: URL? {
+        configuredHTTPSURL(forInfoKey: "SUPPORT_URL")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Picker("Settings section", selection: $selectedSection) {
@@ -71,8 +79,39 @@ struct SettingsView: View {
                 .pickerStyle(.segmented)
             }
 
+            Section("ℹ️ About & Support") {
+                if let privacyPolicyURL {
+                    Link("Privacy Policy", destination: privacyPolicyURL)
+                }
+                if let supportURL {
+                    Link("Support", destination: supportURL)
+                }
+                if privacyPolicyURL == nil || supportURL == nil {
+                    Text("Privacy and support links must be configured in the release build.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                LabeledContent("Version", value: versionLabel)
+            }
+
         }
         .scrollContentBackground(.hidden)
+    }
+
+    private var versionLabel: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "—"
+        return "\(version) (\(build))"
+    }
+
+    private func configuredHTTPSURL(forInfoKey key: String) -> URL? {
+        guard
+            let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+            let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+            url.scheme?.lowercased() == "https",
+            url.host != nil
+        else { return nil }
+        return url
     }
 }
 
@@ -146,7 +185,6 @@ private struct FocusTimeSettingsView: View {
 private struct WeeklyReportsView: View {
     @ObservedObject var viewModel: TodoViewModel
     @State private var weekOffset = 0
-    @State private var showTeamReport = false
 
     private var interval: DateInterval {
         let calendar = Calendar.current
@@ -185,22 +223,7 @@ private struct WeeklyReportsView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if viewModel.isProReviewDemo {
-                Picker("Report scope", selection: $showTeamReport) {
-                    Text("My report").tag(false)
-                    Text("Team").tag(true)
-                }
-                .pickerStyle(.segmented)
-                .padding(.horizontal)
-                .padding(.bottom, 8)
-            }
-            if showTeamReport {
-                TeamWeeklyReportView(viewModel: viewModel)
-            } else {
-                personalReport
-            }
-        }
+        personalReport
     }
 
     private var personalReport: some View {
@@ -324,6 +347,8 @@ private struct WeeklyReportsView: View {
     }
 }
 
+#if TEAM_VIEW_ENABLED
+// Deactivated: preserved outside active Team feature builds.
 private struct TeamWeeklyReportView: View {
     @ObservedObject var viewModel: TodoViewModel
 
@@ -358,6 +383,7 @@ private struct TeamWeeklyReportView: View {
         }
     }
 }
+#endif
 
 private struct ReportMetricCard: View {
     let title: String

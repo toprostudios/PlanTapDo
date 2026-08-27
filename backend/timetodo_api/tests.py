@@ -1,21 +1,26 @@
 from datetime import timedelta
+import re
 
 from django.contrib.auth.hashers import identify_hasher
-from django.test import TestCase
+from django.core import mail
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.conf import settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APIClient
-from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import AccessToken
 from asgiref.sync import async_to_sync
 from channels.testing import WebsocketCommunicator
-from .models import User, Category, TodoEntry, TimeSession, LocationTravelTime
+from .account_security import issue_session_tokens, totp_code
+from .models import User, Category, TodoEntry, TimeSession, LocationTravelTime, UserSession
 from .asgi import application
 from .security import revoke_access_token
 
 
 class AccountAndSyncTests(TestCase):
     def setUp(self):
+        mail.outbox.clear()
         self.client = APIClient()
         self.register_url = reverse("auth_register")
         self.me_url = reverse("auth_me")
@@ -41,12 +46,23 @@ class AccountAndSyncTests(TestCase):
             "last_name": "Account",
         }
         response = client.post(self.register_url, payload, format="json")
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn("tokens", response.data)
-        self.assertIn("access", response.data["tokens"])
-        self.assertEqual(response.data["username"], "newuser")
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertNotIn("tokens", response.data)
+        self.assertTrue(response.data["verification_required"])
+        self.assertEqual(len(mail.outbox), 1)
+        code = re.search(r"\b\d{8}\b", mail.outbox[0].body).group(0)
+        confirmation = client.post(
+            reverse("auth_email_verify_confirm"),
+            {"email": payload["email"], "code": code, "client_label": "Test iPhone"},
+            format="json",
+        )
+        self.assertEqual(confirmation.status_code, status.HTTP_200_OK)
+        self.assertIn("access", confirmation.data["tokens"])
+        self.assertEqual(confirmation.data["username"], "newuser")
         created_user = User.objects.get(username="newuser")
         self.assertEqual(identify_hasher(created_user.password).algorithm, "argon2")
+        self.assertIsNotNone(created_user.email_verified_at)
+        self.assertTrue(UserSession.objects.filter(user=created_user, client_label="Test iPhone").exists())
 
     def test_user_registration_rejects_short_password(self):
         client = APIClient()
@@ -78,7 +94,7 @@ class AccountAndSyncTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("password", response.data)
 
-    def test_registration_requires_unique_email_case_insensitively(self):
+    def test_registration_conflict_is_generic_case_insensitively(self):
         client = APIClient()
         response = client.post(
             self.register_url,
@@ -90,8 +106,12 @@ class AccountAndSyncTests(TestCase):
             format="json",
         )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("email", response.data)
+        self.assertEqual(response.status_code, status.HTTP_202_ACCEPTED)
+        self.assertEqual(
+            set(response.data),
+            {"detail", "verification_required"},
+        )
+        self.assertNotIn("email", str(response.data).lower())
 
     def test_user_profile_me(self):
         response = self.client.get(self.me_url)
@@ -103,6 +123,74 @@ class AccountAndSyncTests(TestCase):
         update_response = self.client.patch(self.me_url, {"first_name": "UpdatedName"}, format="json")
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
         self.assertEqual(update_response.data["first_name"], "UpdatedName")
+
+    def test_account_deletion_requires_password_and_removes_all_account_data(self):
+        category = Category.objects.create(name="Private", owner=self.user)
+        todo = TodoEntry.objects.create(title="Delete me", owner=self.user, category=category)
+        TimeSession.objects.create(todo=todo, start=timezone.now())
+        LocationTravelTime.objects.create(
+            owner=self.user,
+            location_key="home|office",
+            duration_minutes=20,
+        )
+
+        wrong_password = self.client.delete(
+            reverse("auth_account_delete"),
+            {"password": "not-the-password", "mfa_code": ""},
+            format="json",
+        )
+        self.assertEqual(wrong_password.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+
+        mfa_setup = self.client.post(
+            reverse("auth_mfa_setup"),
+            {"password": "securepassword123"},
+            format="json",
+        )
+        self.assertEqual(mfa_setup.status_code, status.HTTP_200_OK)
+        mfa_secret = mfa_setup.data["secret"]
+        mfa_confirmation = self.client.post(
+            reverse("auth_mfa_confirm"),
+            {"code": totp_code(mfa_secret)},
+            format="json",
+        )
+        self.assertEqual(mfa_confirmation.status_code, status.HTTP_200_OK)
+
+        self.user.refresh_from_db()
+        tokens = issue_session_tokens(self.user, client_label="Deletion test")
+        authenticated_client = APIClient()
+        authenticated_client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {tokens['access']}"
+        )
+        missing_mfa = authenticated_client.delete(
+            reverse("auth_account_delete"),
+            {"password": "securepassword123", "mfa_code": ""},
+            format="json",
+        )
+        self.assertEqual(missing_mfa.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(User.objects.filter(pk=self.user.pk).exists())
+
+        deleted = authenticated_client.delete(
+            reverse("auth_account_delete"),
+            {
+                "password": "securepassword123",
+                "mfa_code": totp_code(mfa_secret),
+            },
+            format="json",
+        )
+
+        self.assertEqual(deleted.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(User.objects.filter(pk=self.user.pk).exists())
+        self.assertFalse(Category.objects.filter(pk=category.pk).exists())
+        self.assertFalse(TodoEntry.objects.filter(pk=todo.pk).exists())
+        self.assertFalse(TimeSession.objects.filter(todo_id=todo.pk).exists())
+        self.assertFalse(
+            LocationTravelTime.objects.filter(location_key="home|office").exists()
+        )
+        self.assertEqual(
+            authenticated_client.get(self.me_url).status_code,
+            status.HTTP_401_UNAUTHORIZED,
+        )
 
     def test_category_and_todo_creation(self):
         cat_res = self.client.post(
@@ -123,7 +211,6 @@ class AccountAndSyncTests(TestCase):
                 "priority": "high",
                 "do_date": "2026-07-31",
                 "planned_start_time": "10:00",
-                "original_planned_start_time": "09:30",
                 "recurrence_frequency": "daily",
                 "recurrence_series_id": "33333333-3333-3333-3333-333333333333",
                 "labels": ["backend", "sync"],
@@ -134,9 +221,65 @@ class AccountAndSyncTests(TestCase):
         self.assertEqual(todo_res.status_code, status.HTTP_201_CREATED)
         self.assertEqual(todo_res.data["title"], "Build Sync API")
         self.assertEqual(todo_res.data["priority"], "high")
-        self.assertEqual(todo_res.data["original_planned_start_time"], "09:30")
         self.assertEqual(todo_res.data["recurrence_frequency"], "daily")
         self.assertEqual(len(todo_res.data["subtasks"]), 1)
+
+    def test_client_generated_category_and_todo_ids_are_preserved(self):
+        category_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        todo_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+
+        category_response = self.client.post(
+            reverse("category-list"),
+            {"id": category_id, "name": "Optimistic category"},
+            format="json",
+        )
+        todo_response = self.client.post(
+            reverse("todo-list"),
+            {
+                "id": todo_id,
+                "title": "Optimistic task",
+                "category_id": category_id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(category_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(todo_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(str(category_response.data["id"]), category_id)
+        self.assertEqual(str(todo_response.data["id"]), todo_id)
+        self.assertTrue(Category.objects.filter(pk=category_id, owner=self.user).exists())
+        self.assertTrue(TodoEntry.objects.filter(pk=todo_id, owner=self.user).exists())
+
+    def test_client_generated_time_session_id_is_preserved(self):
+        todo = TodoEntry.objects.create(owner=self.user, title="Stable timer")
+        session_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+
+        response = self.client.post(
+            reverse("session-list"),
+            {
+                "id": session_id,
+                "todo": str(todo.id),
+                "start": "2026-08-24T13:00:00Z",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(str(response.data["id"]), session_id)
+        self.assertTrue(TimeSession.objects.filter(pk=session_id, todo=todo).exists())
+
+    def test_duplicate_travel_time_returns_validation_error(self):
+        payload = {"location_key": "home|office", "duration_minutes": 20}
+        first_response = self.client.post(
+            reverse("travel-time-list"), payload, format="json"
+        )
+        duplicate_response = self.client.post(
+            reverse("travel-time-list"), payload, format="json"
+        )
+
+        self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(duplicate_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("location_key", duplicate_response.data)
 
     def test_custom_recurrence_weekdays_round_trip(self):
         response = self.client.post(
@@ -254,6 +397,67 @@ class AccountAndSyncTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.data["detail"], "Sync payload must be an object.")
 
+    def test_sync_round_trips_client_sessions_and_offline_deletions(self):
+        deleted_todo = TodoEntry.objects.create(owner=self.user, title="Delete offline")
+        deleted_category = Category.objects.create(owner=self.user, name="Old category")
+        synced_todo = TodoEntry.objects.create(owner=self.user, title="Tracked work")
+        session_id = "88888888-8888-4888-8888-888888888888"
+
+        response = self.client.post(
+            self.sync_url,
+            {
+                "sessions": [
+                    {
+                        "id": session_id,
+                        "todo": str(synced_todo.id),
+                        "start": "2026-08-24T13:00:00Z",
+                        "end": "2026-08-24T13:30:00Z",
+                    }
+                ],
+                "deleted_todo_ids": [str(deleted_todo.id)],
+                "deleted_category_ids": [str(deleted_category.id)],
+                "deleted_session_ids": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(TodoEntry.objects.filter(pk=deleted_todo.id).exists())
+        self.assertFalse(Category.objects.filter(pk=deleted_category.id).exists())
+        self.assertTrue(
+            TimeSession.objects.filter(pk=session_id, todo=synced_todo).exists()
+        )
+        returned = next(item for item in response.data["sessions"] if str(item["id"]) == session_id)
+        self.assertEqual(str(returned["todo"]), str(synced_todo.id))
+
+    def test_sync_cannot_delete_or_attach_another_accounts_session(self):
+        other = User.objects.create_user(username="session-owner", password="securepassword123")
+        foreign_todo = TodoEntry.objects.create(owner=other, title="Private")
+        foreign_session = TimeSession.objects.create(todo=foreign_todo, start=timezone.now())
+
+        delete_response = self.client.post(
+            self.sync_url,
+            {"deleted_session_ids": [str(foreign_session.id)]},
+            format="json",
+        )
+        attach_response = self.client.post(
+            self.sync_url,
+            {
+                "sessions": [
+                    {
+                        "id": "99999999-9999-4999-8999-999999999999",
+                        "todo": str(foreign_todo.id),
+                        "start": "2026-08-24T13:00:00Z",
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(attach_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(TimeSession.objects.filter(pk=foreign_session.id).exists())
+
     def test_api_responses_disable_caching_and_embedding(self):
         response = self.client.get(self.me_url)
 
@@ -268,6 +472,7 @@ class AccountAndSyncTests(TestCase):
             reverse("category-list"),
             reverse("todo-list"),
             reverse("session-list"),
+            reverse("travel-time-list"),
             reverse("repeat-rule-list"),
             self.sync_url,
             self.me_url,
@@ -313,21 +518,141 @@ class AccountAndSyncTests(TestCase):
         self.assertFalse(Category.objects.filter(name="Must roll back").exists())
 
     def test_logout_blacklists_refresh_and_revokes_current_access_token(self):
-        refresh = RefreshToken.for_user(self.user)
-        access = refresh.access_token
+        tokens = issue_session_tokens(self.user, "Logout test")
         client = APIClient()
-        client.credentials(HTTP_AUTHORIZATION=f"Bearer {access}")
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
         response = client.post(
-            reverse("auth_logout"), {"refresh": str(refresh)}, format="json"
+            reverse("auth_logout"), {"refresh": tokens["refresh"]}, format="json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         access_response = client.get(self.me_url)
         self.assertEqual(access_response.status_code, status.HTTP_401_UNAUTHORIZED)
         refresh_response = client.post(
-            reverse("token_refresh"), {"refresh": str(refresh)}, format="json"
+            reverse("token_refresh"), {"refresh": tokens["refresh"]}, format="json"
         )
         self.assertEqual(refresh_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_logout_retry_is_idempotent_without_access_token(self):
+        tokens = issue_session_tokens(self.user, "Offline iPhone")
+        client = APIClient()
+        first = client.post(
+            reverse("auth_logout_retry"), {"refresh": tokens["refresh"]}, format="json"
+        )
+        second = client.post(
+            reverse("auth_logout_retry"), {"refresh": tokens["refresh"]}, format="json"
+        )
+
+        self.assertEqual(first.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(second.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertIsNotNone(UserSession.objects.get(client_label="Offline iPhone").revoked_at)
+
+    def test_revoke_all_invalidates_every_device_session(self):
+        first = issue_session_tokens(self.user, "First iPhone")
+        second = issue_session_tokens(self.user, "Second iPhone")
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {first['access']}")
+
+        response = client.post(reverse("auth_session_revoke_all"), {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+        for tokens in (first, second):
+            refresh_response = APIClient().post(
+                reverse("token_refresh"), {"refresh": tokens["refresh"]}, format="json"
+            )
+            self.assertEqual(refresh_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_password_reset_is_non_enumerating_and_revokes_sessions(self):
+        self.user.email_verified_at = timezone.now()
+        self.user.save(update_fields=["email_verified_at"])
+        tokens = issue_session_tokens(self.user, "Reset test")
+        client = APIClient()
+        missing = client.post(
+            reverse("auth_password_reset_request"),
+            {"email": "missing@plantapdo.app"},
+            format="json",
+        )
+        existing = client.post(
+            reverse("auth_password_reset_request"),
+            {"email": self.user.email},
+            format="json",
+        )
+        self.assertEqual(missing.status_code, existing.status_code)
+        self.assertEqual(missing.data, existing.data)
+        code = re.search(r"\b\d{8}\b", mail.outbox[-1].body).group(0)
+        confirmation = client.post(
+            reverse("auth_password_reset_confirm"),
+            {
+                "email": self.user.email,
+                "code": code,
+                "new_password": "A-New!Secure#Password2026",
+            },
+            format="json",
+        )
+        self.assertEqual(confirmation.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertTrue(User.objects.get(pk=self.user.pk).check_password("A-New!Secure#Password2026"))
+        refresh_response = client.post(
+            reverse("token_refresh"), {"refresh": tokens["refresh"]}, format="json"
+        )
+        self.assertEqual(refresh_response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_verified_login_tracks_session_and_requires_mfa_when_enabled(self):
+        self.user.email_verified_at = timezone.now()
+        self.user.save(update_fields=["email_verified_at"])
+        setup = self.client.post(
+            reverse("auth_mfa_setup"),
+            {"password": "securepassword123"},
+            format="json",
+        )
+        self.assertEqual(setup.status_code, status.HTTP_200_OK)
+        confirmation = self.client.post(
+            reverse("auth_mfa_confirm"),
+            {"code": totp_code(setup.data["secret"])},
+            format="json",
+        )
+        self.assertEqual(confirmation.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(confirmation.data["recovery_codes"]), 10)
+
+        anonymous = APIClient()
+        missing_mfa = anonymous.post(
+            reverse("token_obtain_pair"),
+            {"username": self.user.username, "password": "securepassword123"},
+            format="json",
+        )
+        self.assertEqual(missing_mfa.status_code, status.HTTP_401_UNAUTHORIZED)
+        login = anonymous.post(
+            reverse("token_obtain_pair"),
+            {
+                "username": self.user.username,
+                "password": "securepassword123",
+                "mfa_code": totp_code(setup.data["secret"]),
+                "client_label": "MFA iPhone",
+            },
+            format="json",
+        )
+        self.assertEqual(login.status_code, status.HTTP_200_OK)
+        self.assertTrue(UserSession.objects.filter(user=self.user, client_label="MFA iPhone").exists())
+
+    def test_session_inventory_identifies_current_device(self):
+        tokens = issue_session_tokens(self.user, "Current iPhone")
+        issue_session_tokens(self.user, "Other iPad")
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {tokens['access']}")
+        response = client.get(reverse("auth_session_list"))
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+        current = next(item for item in response.data if item["current"])
+        self.assertEqual(current["client_label"], "Current iPhone")
+
+    @override_settings(ACCOUNT_CATEGORY_QUOTA=1)
+    def test_account_quota_bounds_list_responses(self):
+        Category.objects.create(owner=self.user, name="Only category")
+        response = self.client.post(
+            reverse("category-list"), {"name": "Over quota"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Category.objects.filter(owner=self.user).count(), 1)
 
     def test_health_endpoints_do_not_expose_internals(self):
         client = APIClient()
@@ -434,6 +759,10 @@ class OwnershipIsolationTests(TestCase):
             format="json",
         )
 
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("end", response.data)
+        self.assertFalse(TimeSession.objects.filter(todo=own_todo).exists())
+
     def test_session_and_repeat_rule_crud_operations(self):
         own_todo = TodoEntry.objects.create(owner=self.user, title="Session todo")
         session_resp = self.client.post(
@@ -474,6 +803,9 @@ class WebSocketAuthenticationTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username="socket-user", password="securepassword123")
 
+    def access_token(self):
+        return AccessToken(issue_session_tokens(self.user, "Socket test")["access"])
+
     def test_rejects_anonymous_connection(self):
         async def scenario():
             communicator = WebsocketCommunicator(
@@ -488,7 +820,7 @@ class WebSocketAuthenticationTests(TestCase):
         async_to_sync(scenario)()
 
     def test_accepts_valid_access_token(self):
-        token = str(RefreshToken.for_user(self.user).access_token)
+        token = self.access_token()
 
         async def scenario():
             communicator = WebsocketCommunicator(
@@ -505,8 +837,40 @@ class WebSocketAuthenticationTests(TestCase):
 
         async_to_sync(scenario)()
 
+    def test_accepts_native_client_without_origin_header(self):
+        token = self.access_token()
+
+        async def scenario():
+            communicator = WebsocketCommunicator(
+                application,
+                "/ws/todos/",
+                headers=[(b"authorization", f"Bearer {token}".encode("ascii"))],
+            )
+            connected, _ = await communicator.connect()
+            self.assertTrue(connected)
+            await communicator.disconnect()
+
+        async_to_sync(scenario)()
+
+    def test_rejects_untrusted_browser_origin(self):
+        token = self.access_token()
+
+        async def scenario():
+            communicator = WebsocketCommunicator(
+                application,
+                "/ws/todos/",
+                headers=[
+                    (b"origin", b"https://attacker.example"),
+                    (b"authorization", f"Bearer {token}".encode("ascii")),
+                ],
+            )
+            connected, _ = await communicator.connect()
+            self.assertFalse(connected)
+
+        async_to_sync(scenario)()
+
     def test_rejects_tokens_in_query_strings(self):
-        token = str(RefreshToken.for_user(self.user).access_token)
+        token = self.access_token()
 
         async def scenario():
             communicator = WebsocketCommunicator(
@@ -521,7 +885,7 @@ class WebSocketAuthenticationTests(TestCase):
         async_to_sync(scenario)()
 
     def test_rejects_revoked_access_token(self):
-        token = RefreshToken.for_user(self.user).access_token
+        token = self.access_token()
         revoke_access_token(token)
 
         async def scenario():
@@ -540,8 +904,8 @@ class WebSocketAuthenticationTests(TestCase):
         async_to_sync(scenario)()
 
     def test_connected_socket_closes_when_access_token_expires(self):
-        token = RefreshToken.for_user(self.user).access_token
-        token.set_exp(lifetime=timedelta(seconds=1))
+        token = self.access_token()
+        token.set_exp(lifetime=timedelta(seconds=2))
 
         async def scenario():
             communicator = WebsocketCommunicator(
@@ -554,14 +918,14 @@ class WebSocketAuthenticationTests(TestCase):
             )
             connected, _ = await communicator.connect()
             self.assertTrue(connected)
-            message = await communicator.receive_output(timeout=2)
+            message = await communicator.receive_output(timeout=4)
             self.assertEqual(message["type"], "websocket.close")
             self.assertEqual(message["code"], 4401)
 
         async_to_sync(scenario)()
 
     def test_socket_rejects_client_side_mutations(self):
-        token = str(RefreshToken.for_user(self.user).access_token)
+        token = self.access_token()
 
         async def scenario():
             communicator = WebsocketCommunicator(

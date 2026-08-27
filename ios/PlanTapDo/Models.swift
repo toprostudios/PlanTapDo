@@ -18,6 +18,86 @@ struct Category: Identifiable, Codable, Hashable {
     var colorHex: String
     var icon: String?
     var notes: String?
+    /// The default used by timed tasks in this category unless they override it.
+    var notificationPreference: NotificationPreference = .none
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, colorHex, icon, notes, notificationPreference
+    }
+
+    init(id: UUID, name: String, colorHex: String, icon: String?, notes: String?, notificationPreference: NotificationPreference = .none) {
+        self.id = id
+        self.name = name
+        self.colorHex = colorHex
+        self.icon = icon
+        self.notes = notes
+        self.notificationPreference = notificationPreference
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        colorHex = try container.decode(String.self, forKey: .colorHex)
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        notes = try container.decodeIfPresent(String.self, forKey: .notes)
+        notificationPreference = try container.decodeIfPresent(NotificationPreference.self, forKey: .notificationPreference) ?? .none
+    }
+}
+
+enum NotificationPreference: Codable, Hashable, Identifiable {
+    case none
+    case atTime
+    case before(minutes: Int)
+    case beforeAndAtTime(minutes: Int)
+
+    var id: String { storageValue }
+
+    var storageValue: String {
+        switch self {
+        case .none: return "none"
+        case .atTime: return "atTime"
+        case .before(let minutes): return "before:\(minutes)"
+        case .beforeAndAtTime(let minutes): return "beforeAndAtTime:\(minutes)"
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .none: return "Off"
+        case .atTime: return "At start time"
+        case .before(let minutes): return "\(minutes) min before"
+        case .beforeAndAtTime(let minutes): return "\(minutes) min before and at start"
+        }
+    }
+
+    var leadMinutes: Int? {
+        switch self {
+        case .before(let minutes), .beforeAndAtTime(let minutes): return minutes
+        case .none, .atTime: return nil
+        }
+    }
+
+    var includesAtTime: Bool {
+        switch self {
+        case .atTime, .beforeAndAtTime: return true
+        case .none, .before: return false
+        }
+    }
+
+    init(from decoder: Decoder) throws {
+        let value = try decoder.singleValueContainer().decode(String.self)
+        if value == "none" { self = .none; return }
+        if value == "atTime" { self = .atTime; return }
+        let parts = value.split(separator: ":")
+        guard parts.count == 2, let minutes = Int(parts[1]), minutes > 0 else { self = .none; return }
+        self = parts[0] == "beforeAndAtTime" ? .beforeAndAtTime(minutes: minutes) : .before(minutes: minutes)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(storageValue)
+    }
 }
 
 struct TimeSession: Identifiable, Codable, Hashable {
@@ -185,17 +265,14 @@ struct TodoEntry: Identifiable, Codable, Hashable {
     var dueTime: String?         // HH:MM (e.g. "18:00")
     var descriptiveDeadline: String? // Descriptive deadline note (no effect on calendar position)
     var plannedStartTime: String? // HH:MM (e.g. "09:30")
-    /// The time that elapsed before this task was automatically pushed. This is
-    /// calendar history, not the task's initially selected schedule.
-    var originalPlannedStartTime: String?
-    /// The day this task was scheduled for before it was carried into a later day.
-    var overdueFromDate: Date?
     var plannedDuration: TimeInterval // seconds (e.g. 1800 for 30m)
     var categoryId: UUID?
     var status: TodoStatus
     var priority: PriorityLevel?
     var location: String?
     var reminder: String?
+    /// Nil means use the category's default. A concrete value, including `.none`, overrides it.
+    var notificationPreference: NotificationPreference?
     var labels: [String]?
     var timeSessions: [TimeSession]?
     var subtasks: [Subtask]?
@@ -214,14 +291,13 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         case dueTime
         case descriptiveDeadline
         case plannedStartTime
-        case originalPlannedStartTime
-        case overdueFromDate
         case plannedDuration
         case categoryId
         case status
         case priority
         case location
         case reminder
+        case notificationPreference
         case labels
         case subtasks
         case assigneeId
@@ -246,12 +322,11 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         priority: PriorityLevel?,
         location: String?,
         reminder: String?,
+        notificationPreference: NotificationPreference? = nil,
         labels: [String]?,
         timeSessions: [TimeSession]?,
         subtasks: [Subtask]?,
         assigneeId: String?,
-        originalPlannedStartTime: String? = nil,
-        overdueFromDate: Date? = nil,
         recurrenceFrequency: RecurrenceFrequency = .none,
         recurrenceWeekdays: [Int]? = nil,
         recurrenceSeriesId: UUID? = nil,
@@ -265,14 +340,13 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         self.dueTime = dueTime
         self.descriptiveDeadline = descriptiveDeadline
         self.plannedStartTime = plannedStartTime
-        self.originalPlannedStartTime = originalPlannedStartTime
-        self.overdueFromDate = overdueFromDate
         self.plannedDuration = plannedDuration
         self.categoryId = categoryId
         self.status = status
         self.priority = priority
         self.location = location
         self.reminder = reminder
+        self.notificationPreference = notificationPreference
         self.labels = labels
         self.timeSessions = timeSessions
         self.subtasks = subtasks
@@ -294,8 +368,6 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         dueTime = try container.decodeIfPresent(String.self, forKey: .dueTime)
         descriptiveDeadline = try container.decodeIfPresent(String.self, forKey: .descriptiveDeadline)
         plannedStartTime = try container.decodeIfPresent(String.self, forKey: .plannedStartTime)
-        originalPlannedStartTime = try container.decodeIfPresent(String.self, forKey: .originalPlannedStartTime)
-        overdueFromDate = Self.decodeDate(from: container, forKey: .overdueFromDate)
 
         let durationMinutes = try container.decodeIfPresent(Double.self, forKey: .plannedDuration) ?? 30
         plannedDuration = durationMinutes * 60
@@ -305,6 +377,7 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         priority = try container.decodeIfPresent(PriorityLevel.self, forKey: .priority)
         location = try container.decodeIfPresent(String.self, forKey: .location)
         reminder = try container.decodeIfPresent(String.self, forKey: .reminder)
+        notificationPreference = try container.decodeIfPresent(NotificationPreference.self, forKey: .notificationPreference)
         labels = try container.decodeIfPresent([String].self, forKey: .labels)
         timeSessions = nil
         subtasks = try container.decodeIfPresent([Subtask].self, forKey: .subtasks)
@@ -329,18 +402,13 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         try container.encode(dueTime, forKey: .dueTime)
         try container.encode(descriptiveDeadline, forKey: .descriptiveDeadline)
         try container.encode(plannedStartTime, forKey: .plannedStartTime)
-        try container.encode(originalPlannedStartTime, forKey: .originalPlannedStartTime)
-        if let overdueFromDate {
-            try container.encode(Self.apiDateString(from: overdueFromDate), forKey: .overdueFromDate)
-        } else {
-            try container.encodeNil(forKey: .overdueFromDate)
-        }
         try container.encode(max(0, Int((plannedDuration / 60).rounded())), forKey: .plannedDuration)
         try container.encode(categoryId, forKey: .categoryId)
         try container.encode(status, forKey: .status)
         try container.encodeIfPresent(priority, forKey: .priority)
         try container.encode(location, forKey: .location)
         try container.encode(reminder, forKey: .reminder)
+        try container.encodeIfPresent(notificationPreference, forKey: .notificationPreference)
         try container.encodeIfPresent(labels, forKey: .labels)
         try container.encodeIfPresent(subtasks, forKey: .subtasks)
         try container.encode(assigneeId, forKey: .assigneeId)

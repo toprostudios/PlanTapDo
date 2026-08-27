@@ -1,7 +1,8 @@
 # Production dependencies are pinned for reproducible builds. Run pip-audit
 # against this file in CI before every release.
-Django==6.0.7
+Django==6.0.8
 argon2-cffi==25.1.0
+cryptography==50.0.0
 djangorestframework==3.17.1
 djangorestframework-simplejwt==5.5.1
 channels==4.3.2
@@ -11,3 +12,4 @@ psycopg[binary]==3.3.4
 django-cors-headers==4.9.0
 drf-spectacular==0.30.0
 sentry-sdk[django]==2.66.1
+sqlparse==0.6.0

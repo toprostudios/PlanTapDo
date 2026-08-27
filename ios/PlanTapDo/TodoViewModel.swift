@@ -16,20 +16,25 @@ class TodoViewModel: ObservableObject {
         didSet { persistAppState() }
     }
     @Published var todos: [TodoEntry] = [] {
-        didSet { persistAppState() }
+        didSet { workspaceContentDidChange() }
     }
     @Published var categories: [Category] = [] {
-        didSet { persistAppState() }
+        didSet { workspaceContentDidChange() }
     }
-    @Published var teamReviewPeople: [UserAccount] = []
     @Published var locationTravelTimes: [String: Int] = [:] {
-        didSet { persistAppState() }
+        didSet { workspaceContentDidChange() }
     }
     @Published var focusBlocks: [FocusBlock] = [] {
         didSet { persistAppState() }
     }
     @Published var isLoading = false
     @Published var errorMessage: String? = nil
+    @Published var accountMessage: String? = nil
+    @Published var pendingVerificationEmail: String? = nil
+    @Published var pendingPasswordResetEmail: String? = nil
+    @Published var isMFAEnabled = false
+    @Published var mfaSetupSecret: String? = nil
+    @Published var mfaRecoveryCodes: [String] = []
 
     // UI State
     @Published var selectedTab: Int = 0 // 0: Today, 1: Future, 2: Categories, 3: Settings
@@ -51,11 +56,15 @@ class TodoViewModel: ObservableObject {
     @Published private(set) var startUndoTitle: String?
     private var timer: Timer? = nil
     private var activeTimerSessionId: UUID? = nil
-    private var serverSessionIds: [UUID: UUID] = [:]
-    private var cancelledSessionIds = Set<UUID>()
-    private var todoMutationVersions: [UUID: Int] = [:]
 
     private var localWorkspaces: [UUID: WorkspaceState] = [:]
+    private var needsCloudSync = false
+    private var deletedTodoIDs = Set<UUID>()
+    private var deletedCategoryIDs = Set<UUID>()
+    private var deletedSessionIDs = Set<UUID>()
+    private var cloudMutationGeneration = 0
+    private var cloudSyncWorkItem: DispatchWorkItem?
+    private var isCloudSyncInFlight = false
 
     private struct StartUndoSnapshot {
         let todo: TodoEntry
@@ -66,7 +75,12 @@ class TodoViewModel: ObservableObject {
     private var startUndoTimer: Timer?
 
     var canUndoLastStart: Bool { startUndoSnapshot != nil }
+#if TEAM_VIEW_ENABLED
+    // Deactivated legacy Team state. This flag is intentionally undefined in
+    // every active build configuration, excluding it from app builds.
+    @Published var teamReviewPeople: [UserAccount] = []
     var isProReviewDemo: Bool { userAccount.tier == "Pro Demo" }
+#endif
 
     var timerFormatted: String {
         let mins = timerSecondsElapsed / 60
@@ -75,35 +89,45 @@ class TodoViewModel: ObservableObject {
     }
 
     func startTimer(for todo: TodoEntry) {
+        guard let idx = todos.firstIndex(where: { $0.id == todo.id }) else { return }
+
         if activeTimerTodoId != nil {
             stopTimer()
         }
-        if let idx = todos.firstIndex(where: { $0.id == todo.id }) {
-            let now = Date()
-            let originalTodo = todos[idx]
-            let session = TimeSession(
-                id: UUID(),
-                todoId: todo.id,
-                start: now,
-                end: nil,
-                duration: nil
-            )
-            startUndoSnapshot = StartUndoSnapshot(todo: originalTodo, sessionId: session.id)
-            startUndoTitle = originalTodo.title
-            scheduleStartUndoExpiry()
 
-            todos[idx].status = .inProgress
+        let now = Date()
+        let originalTodo = todos[idx]
+        let session = TimeSession(
+            id: UUID(),
+            todoId: todo.id,
+            start: now,
+            end: nil,
+            duration: nil
+        )
+        startUndoSnapshot = StartUndoSnapshot(todo: originalTodo, sessionId: session.id)
+        startUndoTitle = originalTodo.title
+        scheduleStartUndoExpiry()
+
+        todos[idx].status = .inProgress
+        // Starting records actual work; it must not rewrite the plan. Replacing a
+        // task's day/time here made its calendar card jump away (or vanish) as
+        // soon as Start was tapped.
+        if todos[idx].plannedStartTime == nil {
             todos[idx].doDate = Calendar.current.startOfDay(for: now)
-            todos[idx].plannedStartTime = Self.timeString(from: min(23 * 60 + 55, Self.roundedUpToFiveMinutes(now)))
-            var sessions = todos[idx].timeSessions ?? []
-            sessions.append(session)
-            todos[idx].timeSessions = sessions
-            activeTimerTodoId = todo.id
-            activeTimerSessionId = session.id
-            persistTodo(todos[idx])
-            persistSessionStart(session)
+            todos[idx].plannedStartTime = Self.timeString(from: Self.minutes(from: now))
         }
+        var sessions = todos[idx].timeSessions ?? []
+        sessions.append(session)
+        todos[idx].timeSessions = sessions
+        activeTimerTodoId = todo.id
+        activeTimerSessionId = session.id
+
         timerSecondsElapsed = 0
+        startTimerTicker()
+    }
+
+    private func startTimerTicker() {
+        timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.timerSecondsElapsed += 1
@@ -121,9 +145,7 @@ class TodoViewModel: ObservableObject {
                 sessions[sessionIndex].end = end
                 sessions[sessionIndex].duration = end.timeIntervalSince(sessions[sessionIndex].start)
                 todos[idx].timeSessions = sessions
-                persistSessionEnd(sessions[sessionIndex])
             }
-            persistTodo(todos[idx])
         }
         clearTimerState()
         clearStartUndo()
@@ -140,7 +162,6 @@ class TodoViewModel: ObservableObject {
 
         if let index = todos.firstIndex(where: { $0.id == snapshot.todo.id }) {
             todos[index] = snapshot.todo
-            persistTodo(snapshot.todo)
         }
         cancelSession(id: snapshot.sessionId)
         clearStartUndo()
@@ -189,34 +210,33 @@ class TodoViewModel: ObservableObject {
             tier: "Personal",
             isCloudSynced: false
         )
-        let proReviewAccount = UserAccount(
-            id: UUID(),
-            name: "Pro Team Review",
-            email: "pro-demo@plantapdo.app",
-            tier: "Pro Demo",
-            isCloudSynced: false
-        )
-        let fallbackAccounts = [personalAccount, proReviewAccount]
+        let fallbackAccounts = [personalAccount]
         let persistedState = stateStore.load()
-        let restoredAccounts = persistedState?.accounts.isEmpty == false
+        let storedAccounts = persistedState?.accounts.isEmpty == false
             ? persistedState!.accounts
             : fallbackAccounts
-        let restoredAccount = restoredAccounts.first {
+        // Preserve old local Team-demo workspace data, but do not expose its
+        // account in the active app.
+        let restoredAccounts = storedAccounts.filter { $0.tier != "Pro Demo" }
+        let activeAccounts = restoredAccounts.isEmpty ? fallbackAccounts : restoredAccounts
+        let restoredAccount = activeAccounts.first {
             $0.id == persistedState?.activeAccountID
-        } ?? restoredAccounts[0]
+        } ?? activeAccounts[0]
 
         self.userAccount = restoredAccount
-        self.availableAccounts = restoredAccounts
+        self.availableAccounts = activeAccounts
         self.showCompletedTasks = UserDefaults.standard.bool(forKey: "showCompletedTasks")
         self.localWorkspaces = persistedState?.workspaces ?? [personalAccount.id: .empty]
 
-        if restoredAccount.tier != "Pro Demo" {
-            let workspace = localWorkspaces[restoredAccount.id] ?? .empty
-            self.todos = workspace.todos
-            self.categories = workspace.categories
-            self.locationTravelTimes = workspace.locationTravelTimes
-            self.focusBlocks = workspace.focusBlocks
-        }
+        let workspace = localWorkspaces[restoredAccount.id] ?? .empty
+        self.todos = workspace.todos
+        self.categories = workspace.categories
+        self.locationTravelTimes = workspace.locationTravelTimes
+        self.focusBlocks = workspace.focusBlocks
+        self.needsCloudSync = workspace.needsCloudSync
+        self.deletedTodoIDs = workspace.deletedTodoIDs
+        self.deletedCategoryIDs = workspace.deletedCategoryIDs
+        self.deletedSessionIDs = workspace.deletedSessionIDs
 
         isRestoringState = false
         api.onTokensChanged = { [weak self] tokens in
@@ -231,15 +251,16 @@ class TodoViewModel: ObservableObject {
             }
         }
 
-        if restoredAccount.tier == "Pro Demo" {
-            loadProReviewDemoData()
-        } else if restoredAccount.isCloudSynced,
+        if restoredAccount.isCloudSynced,
                   let tokens = credentialStore.load(accountID: restoredAccount.id) {
             api.setAuthTokens(tokens, notify: false)
         } else {
             api.clearAuthTokens(notify: false)
         }
+        retryPendingLogouts()
+        restoreActiveTimerIfNeeded()
         persistAppState()
+        synchronizeNotifications()
     }
 
     func shouldDisplay(_ todo: TodoEntry) -> Bool {
@@ -277,18 +298,6 @@ class TodoViewModel: ObservableObject {
         guard !locA.isEmpty && !locB.isEmpty else { return }
         let key = makeLocationKey(locA, locB)
         locationTravelTimes[key] = max(0, min(10_080, durationMinutes))
-        guard userAccount.isCloudSynced, api.isAuthenticated else { return }
-
-        api.syncTravelTimes(locationTravelTimes)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { [weak self] state in
-                self?.applyTravelTimes(state.travelTimes)
-            }
-            .store(in: &cancellables)
     }
 
     func switchAccount(_ account: UserAccount) {
@@ -304,21 +313,17 @@ class TodoViewModel: ObservableObject {
         clearTimerState()
         clearStartUndo()
         userAccount = account
-        if account.tier == "Pro Demo" {
-            api.clearAuthTokens(notify: false)
-            loadProReviewDemoData()
+        restoreWorkspace(for: account)
+        restoreActiveTimerIfNeeded()
+        if account.isCloudSynced,
+           let tokens = credentialStore.load(accountID: account.id) {
+            api.setAuthTokens(tokens, notify: false)
+            fetchTodos()
         } else {
-            restoreWorkspace(for: account)
-            if account.isCloudSynced,
-               let tokens = credentialStore.load(accountID: account.id) {
-                api.setAuthTokens(tokens, notify: false)
-                fetchTodos()
-            } else {
-                api.clearAuthTokens(notify: false)
-            }
-            if account.isCloudSynced && !api.isAuthenticated {
-                errorMessage = "Sign in again to resume cloud sync."
-            }
+            api.clearAuthTokens(notify: false)
+        }
+        if account.isCloudSynced && !api.isAuthenticated {
+            errorMessage = "Sign in again to resume cloud sync."
         }
     }
 
@@ -326,6 +331,7 @@ class TodoViewModel: ObservableObject {
         guard !username.isEmpty && !email.isEmpty && !password.isEmpty else { return }
         isLoading = true
         errorMessage = nil
+        accountMessage = nil
 
         api.registerAccount(username: username, email: email, password: password)
             .receive(on: DispatchQueue.main)
@@ -335,7 +341,29 @@ class TodoViewModel: ObservableObject {
                     self?.errorMessage = error.localizedDescription
                 }
             } receiveValue: { [weak self] response in
+                self?.pendingVerificationEmail = email
+                self?.accountMessage = response.detail
+            }
+            .store(in: &cancellables)
+    }
+
+    func confirmEmailAndSwitchAccount(email: String, code: String) {
+        guard !email.isEmpty, !code.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        accountMessage = nil
+
+        api.confirmEmail(email: email, code: code)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] response in
                 guard let self else { return }
+                self.pendingVerificationEmail = nil
+                self.isMFAEnabled = response.mfaEnabled
                 let account = UserAccount(
                     id: response.id,
                     name: response.username,
@@ -348,12 +376,64 @@ class TodoViewModel: ObservableObject {
             .store(in: &cancellables)
     }
 
-    func loginAndSwitchAccount(username: String, password: String) {
+    func resendEmailVerification(email: String) {
+        api.resendEmailVerification(email: email)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] response in
+                self?.accountMessage = response.detail
+            }
+            .store(in: &cancellables)
+    }
+
+    func requestPasswordReset(email: String) {
+        guard !email.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        accountMessage = nil
+        api.requestPasswordReset(email: email)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] response in
+                self?.pendingPasswordResetEmail = email
+                self?.accountMessage = response.detail
+            }
+            .store(in: &cancellables)
+    }
+
+    func confirmPasswordReset(email: String, code: String, newPassword: String) {
+        guard !email.isEmpty, !code.isEmpty, newPassword.count >= 15 else { return }
+        isLoading = true
+        errorMessage = nil
+        accountMessage = nil
+        api.confirmPasswordReset(email: email, code: code, newPassword: newPassword)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                switch completion {
+                case .finished:
+                    self?.pendingPasswordResetEmail = nil
+                    self?.accountMessage = "Password updated. Sign in with your new password."
+                case .failure(let error):
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { _ in }
+            .store(in: &cancellables)
+    }
+
+    func loginAndSwitchAccount(username: String, password: String, mfaCode: String = "") {
         guard !username.isEmpty, !password.isEmpty else { return }
         isLoading = true
         errorMessage = nil
 
-        api.login(username: username, password: password)
+        api.login(username: username, password: password, mfaCode: mfaCode)
             .flatMap { [api] tokens in
                 api.setAuthTokens(tokens, notify: false)
                 return api.fetchProfile().map { (tokens, $0) }
@@ -374,6 +454,7 @@ class TodoViewModel: ObservableObject {
                     tier: "Cloud",
                     isCloudSynced: true
                 )
+                self.isMFAEnabled = profile.mfaEnabled
                 self.activateCloudAccount(account, tokens: tokens)
             }
             .store(in: &cancellables)
@@ -382,19 +463,154 @@ class TodoViewModel: ObservableObject {
     func signOutCloudAccount() {
         guard userAccount.isCloudSynced else { return }
         let signedOutID = userAccount.id
+        if let tokens = credentialStore.load(accountID: signedOutID) {
+            credentialStore.savePendingLogout(tokens, accountID: signedOutID)
+        }
         api.logout()
             .sink(
-                receiveCompletion: { _ in },
+                receiveCompletion: { [weak self] completion in
+                    if case .finished = completion {
+                        self?.credentialStore.deletePendingLogout(accountID: signedOutID)
+                    }
+                },
                 receiveValue: { _ in }
             )
             .store(in: &cancellables)
+        completeLocalSignOut(accountID: signedOutID)
+    }
+
+    func revokeAllSessionsAndSignOut() {
+        guard userAccount.isCloudSynced else { return }
+        let signedOutID = userAccount.id
+        isLoading = true
+        errorMessage = nil
+        api.revokeAllSessions()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                switch completion {
+                case .finished:
+                    self?.credentialStore.deletePendingLogout(accountID: signedOutID)
+                    self?.completeLocalSignOut(accountID: signedOutID)
+                case .failure(let error):
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { _ in }
+            .store(in: &cancellables)
+    }
+
+    func deleteCloudAccount(password: String, mfaCode: String = "") {
+        guard userAccount.isCloudSynced, !password.isEmpty else { return }
+        let deletedAccountID = userAccount.id
+        isLoading = true
+        errorMessage = nil
+        accountMessage = nil
+
+        api.deleteAccount(password: password, mfaCode: mfaCode)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] _ in
+                guard let self else { return }
+                self.completeLocalSignOut(accountID: deletedAccountID)
+                self.accountMessage = "Your cloud account and synced data were deleted."
+            }
+            .store(in: &cancellables)
+    }
+
+    func startMFASetup(password: String) {
+        guard userAccount.isCloudSynced, !password.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        accountMessage = nil
+        api.startMFASetup(password: password)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] response in
+                self?.mfaSetupSecret = response.secret
+                self?.accountMessage = "Add this key to your authenticator, then enter its code."
+            }
+            .store(in: &cancellables)
+    }
+
+    func confirmMFA(code: String) {
+        guard !code.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        api.confirmMFA(code: code)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] response in
+                guard let self else { return }
+                self.api.setAuthTokens(response.tokens, notify: false)
+                self.credentialStore.save(response.tokens, accountID: self.userAccount.id)
+                self.isMFAEnabled = true
+                self.mfaSetupSecret = nil
+                self.mfaRecoveryCodes = response.recoveryCodes
+                self.accountMessage = "MFA is enabled. Save every recovery code now."
+            }
+            .store(in: &cancellables)
+    }
+
+    func disableMFA(password: String, code: String) {
+        guard !password.isEmpty, !code.isEmpty else { return }
+        isLoading = true
+        errorMessage = nil
+        api.disableMFA(password: password, code: code)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] completion in
+                self?.isLoading = false
+                if case let .failure(error) = completion {
+                    self?.errorMessage = error.localizedDescription
+                }
+            } receiveValue: { [weak self] response in
+                guard let self else { return }
+                self.api.setAuthTokens(response.tokens, notify: false)
+                self.credentialStore.save(response.tokens, accountID: self.userAccount.id)
+                self.isMFAEnabled = false
+                self.mfaRecoveryCodes = []
+                self.accountMessage = "MFA is disabled."
+            }
+            .store(in: &cancellables)
+    }
+
+    private func completeLocalSignOut(accountID signedOutID: UUID) {
         credentialStore.delete(accountID: signedOutID)
         api.clearAuthTokens(notify: false)
         availableAccounts.removeAll { $0.id == signedOutID }
+        isMFAEnabled = false
+        mfaSetupSecret = nil
+        mfaRecoveryCodes = []
         guard let fallback = availableAccounts.first(where: { !$0.isCloudSynced }) else { return }
         switchAccount(fallback)
         localWorkspaces.removeValue(forKey: signedOutID)
         persistAppState()
+    }
+
+    private func retryPendingLogouts() {
+        for pending in credentialStore.loadPendingLogouts() {
+            api.retryLogout(refreshToken: pending.tokens.refresh)
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] completion in
+                    if case .finished = completion {
+                        self?.credentialStore.deletePendingLogout(
+                            accountID: pending.accountID
+                        )
+                    }
+                } receiveValue: { _ in }
+                .store(in: &cancellables)
+        }
     }
 
     private func activateCloudAccount(_ account: UserAccount, tokens: APIClient.AuthTokens) {
@@ -405,7 +621,9 @@ class TodoViewModel: ObservableObject {
         availableAccounts.append(account)
         userAccount = account
         restoreWorkspace(for: account)
+#if TEAM_VIEW_ENABLED
         teamReviewPeople = []
+#endif
         isRestoringState = wasRestoringState
         credentialStore.save(tokens, accountID: account.id)
         api.setAuthTokens(tokens, notify: false)
@@ -415,7 +633,8 @@ class TodoViewModel: ObservableObject {
         fetchTodos()
     }
 
-    // MARK: - Local Pro Review Demo
+    #if TEAM_VIEW_ENABLED
+    // MARK: - Deactivated Local Pro Review Demo
     func loadProReviewDemoData() {
         let alex = UserAccount(id: UUID(), name: "Alex Morgan", email: "alex@northstar.demo", tier: "Team Member", isCloudSynced: false)
         let priya = UserAccount(id: UUID(), name: "Priya Shah", email: "priya@northstar.demo", tier: "Team Member", isCloudSynced: false)
@@ -585,13 +804,18 @@ class TodoViewModel: ObservableObject {
         ]
     }
 
+    #endif
+
     private func saveActiveWorkspace() {
-        guard !isProReviewDemo else { return }
         localWorkspaces[userAccount.id] = WorkspaceState(
             todos: todos,
             categories: categories,
             locationTravelTimes: locationTravelTimes,
-            focusBlocks: focusBlocks
+            focusBlocks: focusBlocks,
+            needsCloudSync: needsCloudSync,
+            deletedTodoIDs: deletedTodoIDs,
+            deletedCategoryIDs: deletedCategoryIDs,
+            deletedSessionIDs: deletedSessionIDs
         )
     }
 
@@ -601,20 +825,28 @@ class TodoViewModel: ObservableObject {
         categories = workspace.categories
         locationTravelTimes = workspace.locationTravelTimes
         focusBlocks = workspace.focusBlocks
+        needsCloudSync = workspace.needsCloudSync
+        deletedTodoIDs = workspace.deletedTodoIDs
+        deletedCategoryIDs = workspace.deletedCategoryIDs
+        deletedSessionIDs = workspace.deletedSessionIDs
+#if TEAM_VIEW_ENABLED
         teamReviewPeople = []
+#endif
         errorMessage = nil
     }
 
     private func persistAppState() {
         guard !isRestoringState else { return }
-        if !isProReviewDemo {
-            localWorkspaces[userAccount.id] = WorkspaceState(
-                todos: todos,
-                categories: categories,
-                locationTravelTimes: locationTravelTimes,
-                focusBlocks: focusBlocks
-            )
-        }
+        localWorkspaces[userAccount.id] = WorkspaceState(
+            todos: todos,
+            categories: categories,
+            locationTravelTimes: locationTravelTimes,
+            focusBlocks: focusBlocks,
+            needsCloudSync: needsCloudSync,
+            deletedTodoIDs: deletedTodoIDs,
+            deletedCategoryIDs: deletedCategoryIDs,
+            deletedSessionIDs: deletedSessionIDs
+        )
         let state = PersistedAppState(
             accounts: availableAccounts,
             activeAccountID: userAccount.id,
@@ -627,37 +859,143 @@ class TodoViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Fetch
-    func fetchTodos() {
-        guard api.isAuthenticated else { return }
+    private func workspaceContentDidChange() {
+        guard !isRestoringState else { return }
+        if userAccount.isCloudSynced {
+            needsCloudSync = true
+            cloudMutationGeneration += 1
+            scheduleCloudSync()
+        }
+        persistAppState()
+        synchronizeNotifications()
+    }
+
+    private func synchronizeNotifications() {
+        LocalNotificationManager.shared.synchronize(todos: todos, categories: categories)
+    }
+
+    private func scheduleCloudSync() {
+        guard userAccount.isCloudSynced, api.isAuthenticated else { return }
+        cloudSyncWorkItem?.cancel()
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.synchronizeWorkspaceWithCloud()
+        }
+        cloudSyncWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: workItem)
+    }
+
+    private func allTimeSessions() -> [TimeSession] {
+        todos
+            .flatMap { $0.timeSessions ?? [] }
+            .filter { $0.todoId != nil }
+            .sorted { $0.start < $1.start }
+    }
+
+    private func synchronizeWorkspaceWithCloud() {
+        guard userAccount.isCloudSynced,
+              api.isAuthenticated,
+              !isCloudSyncInFlight else { return }
+
+        isCloudSyncInFlight = true
         isLoading = true
         errorMessage = nil
-        api.fetchSyncState()
+        let accountID = userAccount.id
+        let generation = cloudMutationGeneration
+        let publisher: AnyPublisher<APIClient.SyncStateResponse, Error>
+        if needsCloudSync {
+            publisher = api.syncWorkspace(
+                categories: categories,
+                todos: todos,
+                sessions: allTimeSessions(),
+                travelTimes: locationTravelTimes,
+                deletedTodoIDs: deletedTodoIDs,
+                deletedCategoryIDs: deletedCategoryIDs,
+                deletedSessionIDs: deletedSessionIDs
+            )
+        } else {
+            publisher = api.fetchSyncState()
+        }
+
+        publisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] completion in
-                self?.isLoading = false
+                guard let self else { return }
+                self.isCloudSyncInFlight = false
+                self.isLoading = false
+                guard self.userAccount.id == accountID else {
+                    self.fetchTodos()
+                    return
+                }
                 if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
+                    self.errorMessage = error.localizedDescription
+                } else if self.needsCloudSync && self.api.isAuthenticated {
+                    self.scheduleCloudSync()
                 }
             } receiveValue: { [weak self] state in
                 guard let self else { return }
-                self.todos = state.todos
-                self.categories = state.categories
-                self.applyTravelTimes(state.travelTimes)
-                for session in state.sessions {
-                    guard let todoId = session.todoId,
-                          let index = self.todos.firstIndex(where: { $0.id == todoId }) else { continue }
-                    var normalizedSession = session
-                    if let duration = normalizedSession.duration {
-                        normalizedSession.duration = duration * 60
-                    }
-                    var sessions = self.todos[index].timeSessions ?? []
-                    sessions.append(normalizedSession)
-                    self.todos[index].timeSessions = sessions
+                guard self.userAccount.id == accountID else { return }
+                guard self.cloudMutationGeneration == generation else {
+                    self.scheduleCloudSync()
+                    return
                 }
+                self.applyCloudState(state)
+                self.needsCloudSync = false
+                self.deletedTodoIDs.removeAll()
+                self.deletedCategoryIDs.removeAll()
+                self.deletedSessionIDs.removeAll()
+                self.persistAppState()
+                self.restoreActiveTimerIfNeeded()
                 self.pushOverdueTasks()
             }
             .store(in: &cancellables)
+    }
+
+    private func applyCloudState(_ state: APIClient.SyncStateResponse) {
+        let wasRestoringState = isRestoringState
+        isRestoringState = true
+        var syncedTodos = state.todos
+        for session in state.sessions {
+            guard let todoId = session.todoId,
+                  let index = syncedTodos.firstIndex(where: { $0.id == todoId }) else { continue }
+            var normalizedSession = session
+            if let duration = normalizedSession.duration {
+                normalizedSession.duration = duration * 60
+            }
+            var sessions = syncedTodos[index].timeSessions ?? []
+            if let existingIndex = sessions.firstIndex(where: { $0.id == normalizedSession.id }) {
+                sessions[existingIndex] = normalizedSession
+            } else {
+                sessions.append(normalizedSession)
+            }
+            syncedTodos[index].timeSessions = sessions.sorted { $0.start < $1.start }
+        }
+        todos = syncedTodos
+        categories = state.categories
+        applyTravelTimes(state.travelTimes)
+        isRestoringState = wasRestoringState
+    }
+
+    private func restoreActiveTimerIfNeeded() {
+        guard activeTimerTodoId == nil else { return }
+        let openSessions = todos.flatMap { todo in
+            (todo.timeSessions ?? [])
+                .filter { $0.end == nil }
+                .map { (todo.id, $0) }
+        }
+        guard let latest = openSessions.max(by: { $0.1.start < $1.1.start }) else { return }
+        activeTimerTodoId = latest.0
+        activeTimerSessionId = latest.1.id
+        timerSecondsElapsed = max(0, Int(Date().timeIntervalSince(latest.1.start)))
+        startTimerTicker()
+    }
+
+    // MARK: - Fetch
+    func fetchTodos() {
+        guard userAccount.isCloudSynced, api.isAuthenticated else {
+            pushOverdueTasks()
+            return
+        }
+        synchronizeWorkspaceWithCloud()
     }
 
     func createTodo(
@@ -673,6 +1011,7 @@ class TodoViewModel: ObservableObject {
         priority: PriorityLevel? = nil,
         location: String? = nil,
         reminder: String? = nil,
+        notificationPreference: NotificationPreference? = nil,
         labels: [String]? = nil,
         recurrenceFrequency: RecurrenceFrequency = .none,
         recurrenceWeekdays: [Int]? = nil
@@ -693,6 +1032,7 @@ class TodoViewModel: ObservableObject {
             priority: priority,
             location: location,
             reminder: reminder,
+            notificationPreference: notificationPreference,
             labels: labels,
             timeSessions: nil,
             subtasks: [],
@@ -701,9 +1041,7 @@ class TodoViewModel: ObservableObject {
             recurrenceWeekdays: recurrenceWeekdays,
             recurrenceSeriesId: recurrenceSeriesId
         )
-        applyFocusRule(to: &newTodo)
         todos.append(newTodo)
-        createTodoOnServer(newTodo)
         materializeRecurringOccurrences(from: newTodo)
     }
 
@@ -719,7 +1057,6 @@ class TodoViewModel: ObservableObject {
                 todos[idx].status = .completed
                 todos[idx].completedAt = Date()
             }
-            persistTodo(todos[idx])
             if todos[idx].status == .completed {
                 ensureFutureOccurrence(after: todos[idx])
             }
@@ -732,20 +1069,12 @@ class TodoViewModel: ObservableObject {
             clearStartUndo()
         }
         let removedTodo = todos.first { $0.id == id }
+        deletedTodoIDs.insert(id)
+        for session in removedTodo?.timeSessions ?? [] {
+            deletedSessionIDs.insert(session.id)
+        }
         todos.removeAll { $0.id == id }
-        guard api.isAuthenticated else { return }
-
-        api.deleteTodo(id: id)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    if let removedTodo, self?.todos.contains(where: { $0.id == id }) == false {
-                        self?.todos.append(removedTodo)
-                    }
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { _ in }
-            .store(in: &cancellables)
+        LocalNotificationManager.shared.removeNotifications(for: id)
     }
 
     func finishTodo(id todoId: UUID) {
@@ -755,7 +1084,6 @@ class TodoViewModel: ObservableObject {
             }
             todos[idx].status = .completed
             todos[idx].completedAt = Date()
-            persistTodo(todos[idx])
             ensureFutureOccurrence(after: todos[idx])
         }
     }
@@ -772,7 +1100,6 @@ class TodoViewModel: ObservableObject {
         if let index = todos.firstIndex(where: { $0.id == todo.id }) {
             todos[index] = updatedTodo
         }
-        persistTodo(updatedTodo)
         if !seriesAlreadyMaterialized {
             materializeRecurringOccurrences(from: updatedTodo)
         }
@@ -815,7 +1142,6 @@ class TodoViewModel: ObservableObject {
             recurrenceFrequency: .none
         )
         todos.append(copy)
-        createTodoOnServer(copy)
     }
 
     // MARK: - Subtask Actions
@@ -825,7 +1151,6 @@ class TodoViewModel: ObservableObject {
             var subtasks = todos[idx].subtasks ?? []
             subtasks.append(Subtask(id: UUID().uuidString, title: title.trimmingCharacters(in: .whitespaces), isCompleted: false))
             todos[idx].subtasks = subtasks
-            persistTodo(todos[idx])
         }
     }
 
@@ -835,7 +1160,6 @@ class TodoViewModel: ObservableObject {
            let subIdx = subtasks.firstIndex(where: { $0.id == subtaskId }) {
             subtasks[subIdx].isCompleted.toggle()
             todos[todoIdx].subtasks = subtasks
-            persistTodo(todos[todoIdx])
         }
     }
 
@@ -844,34 +1168,30 @@ class TodoViewModel: ObservableObject {
            var subtasks = todos[todoIdx].subtasks {
             subtasks.removeAll { $0.id == subtaskId }
             todos[todoIdx].subtasks = subtasks
-            persistTodo(todos[todoIdx])
         }
     }
 
     // MARK: - Recurrence & Live Schedule
 
     func pushOverdueTasks(at currentDate: Date = Date()) {
+        guard !isCloudSyncInFlight else { return }
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: currentDate)
         let currentMinutes = calendar.component(.hour, from: currentDate) * 60
             + calendar.component(.minute, from: currentDate)
         let roundedCurrentMinutes = max(7 * 60, Int(ceil(Double(currentMinutes) / 5.0) * 5.0))
-        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
 
-        // Anything left unfinished on an earlier scheduled day becomes an overdue
-        // Today item. It is then included in the same ordered pass below, so every
-        // following task is pushed after it rather than left overlapping it.
+        // An unfinished scheduled task simply moves forward. Only timer sessions
+        // are historical calendar records; an abandoned plan never leaves a ghost.
         for index in todos.indices where todos[index].status == .pending && todos[index].plannedStartTime != nil {
             let scheduledDay = calendar.startOfDay(for: todos[index].doDate)
             guard scheduledDay < today else { continue }
-            if todos[index].overdueFromDate == nil {
-                todos[index].overdueFromDate = scheduledDay
-            }
             todos[index].doDate = today
-            persistTodo(todos[index])
         }
-        var overflowDate = tomorrow
-        var overflowMinute = nextOpenMinute(on: overflowDate)
+
+        // Scheduling is explicit. Do not move today's tasks later (or into
+        // tomorrow) merely because the current time has passed their slot.
+        return
 
         let scheduledIndices = todos.indices
             .filter { index in
@@ -885,77 +1205,100 @@ class TodoViewModel: ObservableObject {
                 (todos[lhs].plannedStartTime ?? "23:59") < (todos[rhs].plannedStartTime ?? "23:59")
             }
 
-        var nextAvailableMinute = roundedCurrentMinutes
+        let movableIDs = Set(scheduledIndices.map { todos[$0].id })
+        var cursorDate = today
+        var cursorMinute = roundedCurrentMinutes
 
         for index in scheduledIndices {
             guard let time = todos[index].plannedStartTime else { continue }
-            var plannedMinute = Self.minutes(from: time)
             let durationMinutes = min(15 * 60, max(5, Int(todos[index].plannedDuration / 60)))
+            let earliestMinute = calendar.isDate(cursorDate, inSameDayAs: today)
+                ? max(Self.minutes(from: time), cursorMinute)
+                : cursorMinute
+            let slot = nextOpenSlot(
+                for: todos[index],
+                onOrAfter: cursorDate,
+                from: earliestMinute,
+                ignoring: movableIDs
+            )
+            let newTime = Self.timeString(from: slot.minute)
+            if !calendar.isDate(todos[index].doDate, inSameDayAs: slot.date)
+                || todos[index].plannedStartTime != newTime {
+                todos[index].doDate = slot.date
+                todos[index].plannedStartTime = newTime
+            }
+            cursorDate = slot.date
+            cursorMinute = slot.minute + durationMinutes
+            if cursorMinute >= 22 * 60 {
+                cursorDate = calendar.date(byAdding: .day, value: 1, to: cursorDate) ?? cursorDate
+                cursorMinute = 7 * 60
+            }
+        }
+    }
 
-            // Focus blocks reserve time for a category. Recurring tasks retain their
-            // fixed slot; regular work is moved to the next allowed slot.
-            if todos[index].recurrenceFrequency == .none {
-                let allowed = nextAllowedSlot(for: todos[index], on: todos[index].doDate, from: plannedMinute)
-                if !calendar.isDate(allowed.date, inSameDayAs: todos[index].doDate) {
-                    todos[index].doDate = allowed.date
-                    todos[index].plannedStartTime = Self.timeString(from: allowed.minute)
-                    persistTodo(todos[index])
+    private func nextOpenSlot(
+        for todo: TodoEntry,
+        onOrAfter startDate: Date,
+        from startMinute: Int,
+        ignoring movableIDs: Set<UUID>
+    ) -> (date: Date, minute: Int) {
+        let calendar = Calendar.current
+        let durationMinutes = min(15 * 60, max(5, Int(todo.plannedDuration / 60)))
+        var candidateDate = calendar.startOfDay(for: startDate)
+        var candidateMinute = max(7 * 60, startMinute)
+
+        for _ in 0..<366 {
+            let allowed = todo.recurrenceFrequency == .none
+                ? nextAllowedSlot(for: todo, on: candidateDate, from: candidateMinute)
+                : (date: candidateDate, minute: candidateMinute)
+            if !calendar.isDate(allowed.date, inSameDayAs: candidateDate) {
+                candidateDate = allowed.date
+                candidateMinute = allowed.minute
+                continue
+            }
+            candidateMinute = allowed.minute
+
+            let occupied = todos.compactMap { other -> (start: Int, end: Int)? in
+                guard other.id != todo.id,
+                      !movableIDs.contains(other.id),
+                      calendar.isDate(other.doDate, inSameDayAs: candidateDate),
+                      other.status != .completed,
+                      other.status != .archived,
+                      other.status != .skipped,
+                      let time = other.plannedStartTime else { return nil }
+                let start = Self.minutes(from: time)
+                return (start, start + min(15 * 60, max(5, Int(other.plannedDuration / 60))))
+            }
+            .sorted { $0.start < $1.start }
+
+            var movedPastConflict = false
+            for interval in occupied where candidateMinute < interval.end {
+                if candidateMinute + durationMinutes <= interval.start {
+                    return (candidateDate, candidateMinute)
+                }
+                candidateMinute = interval.end
+                movedPastConflict = true
+            }
+            if movedPastConflict, todo.recurrenceFrequency == .none {
+                let focusAdjusted = nextAllowedSlot(
+                    for: todo,
+                    on: candidateDate,
+                    from: candidateMinute
+                )
+                if !calendar.isDate(focusAdjusted.date, inSameDayAs: candidateDate) {
+                    candidateDate = focusAdjusted.date
+                    candidateMinute = focusAdjusted.minute
                     continue
                 }
-                plannedMinute = allowed.minute
-                if plannedMinute != Self.minutes(from: time) { updatePushedTime(at: index, minute: plannedMinute) }
+                candidateMinute = focusAdjusted.minute
             }
-
-            if plannedMinute >= nextAvailableMinute {
-                nextAvailableMinute = plannedMinute + durationMinutes
-                continue
+            if candidateMinute + durationMinutes <= 22 * 60 {
+                return (candidateDate, candidateMinute)
             }
-
-            if nextAvailableMinute + durationMinutes > 22 * 60 {
-                if hasRecurringOccurrence(for: todos[index], on: tomorrow) {
-                    let lastPossibleMinute = max(7 * 60, 22 * 60 - durationMinutes)
-                    updatePushedTime(at: index, minute: lastPossibleMinute)
-                    nextAvailableMinute = 22 * 60
-                } else {
-                    while overflowMinute + durationMinutes > 22 * 60 {
-                        overflowDate = calendar.date(byAdding: .day, value: 1, to: overflowDate) ?? overflowDate
-                        overflowMinute = nextOpenMinute(on: overflowDate)
-                    }
-                    if todos[index].originalPlannedStartTime == nil {
-                        todos[index].originalPlannedStartTime = time
-                    }
-                    todos[index].doDate = overflowDate
-                    todos[index].plannedStartTime = Self.timeString(from: overflowMinute)
-                    overflowMinute += durationMinutes
-                    persistTodo(todos[index])
-                }
-                continue
-            }
-
-            updatePushedTime(at: index, minute: nextAvailableMinute)
-            nextAvailableMinute += durationMinutes
+            candidateDate = calendar.date(byAdding: .day, value: 1, to: candidateDate) ?? candidateDate
+            candidateMinute = 7 * 60
         }
-    }
-
-    private func updatePushedTime(at index: Int, minute: Int) {
-        let oldTime = todos[index].plannedStartTime
-        let newTime = Self.timeString(from: minute)
-        guard oldTime != newTime else { return }
-        if todos[index].originalPlannedStartTime == nil {
-            todos[index].originalPlannedStartTime = oldTime
-        }
-        todos[index].plannedStartTime = newTime
-        persistTodo(todos[index])
-    }
-
-    private func nextOpenMinute(on date: Date) -> Int {
-        let scheduledEnds = todos.compactMap { todo -> Int? in
-            guard Calendar.current.isDate(todo.doDate, inSameDayAs: date),
-                  todo.status != .completed,
-                  let time = todo.plannedStartTime else { return nil }
-            return Self.minutes(from: time) + max(5, Int(todo.plannedDuration / 60))
-        }
-        return max(7 * 60, scheduledEnds.max() ?? 7 * 60)
+        return (candidateDate, candidateMinute)
     }
 
     private func applyFocusRulesToScheduledTasks() {
@@ -963,7 +1306,6 @@ class TodoViewModel: ObservableObject {
             var todo = todos[index]
             guard applyFocusRule(to: &todo) else { continue }
             todos[index] = todo
-            persistTodo(todo)
         }
     }
 
@@ -993,7 +1335,7 @@ class TodoViewModel: ObservableObject {
                 guard block.weekdays.contains(weekday) else { return false }
                 // Older per-category blocks remain supported; new blocks express the
                 // clearer rule that selected categories are allowed and all others move.
-                if let categoryId = block.categoryId { return categoryId == todo.categoryId }
+                if let categoryId = block.categoryId { return categoryId != todo.categoryId }
                 return block.allowedCategoryIds.isEmpty || !block.allowedCategoryIds.contains(todo.categoryId ?? UUID())
             }
 
@@ -1055,7 +1397,6 @@ class TodoViewModel: ObservableObject {
                 recurrenceSeriesId: seriesId
             )
             todos.append(occurrence)
-            createTodoOnServer(occurrence)
         }
     }
 
@@ -1132,170 +1473,41 @@ class TodoViewModel: ObservableObject {
         String(format: "%02d:%02d", minutes / 60, minutes % 60)
     }
 
-    private static func roundedUpToFiveMinutes(_ date: Date) -> Int {
+    private static func minutes(from date: Date) -> Int {
         let calendar = Calendar.current
-        let minutes = calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
-        return Int(ceil(Double(minutes) / 5.0) * 5.0)
-    }
-
-    private func createTodoOnServer(_ todo: TodoEntry) {
-        guard api.isAuthenticated else { return }
-
-        api.createTodo(todo)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { [weak self] createdTodo in
-                guard let self,
-                      let index = self.todos.firstIndex(where: { $0.id == todo.id }) else { return }
-                var mergedTodo = createdTodo
-                mergedTodo.timeSessions = self.todos[index].timeSessions
-                self.todos[index] = mergedTodo
-            }
-            .store(in: &cancellables)
-    }
-
-    private func persistSessionStart(_ session: TimeSession) {
-        guard api.isAuthenticated, let todoId = session.todoId else { return }
-        api.createTimeSession(todoId: todoId, start: session.start)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { [weak self] savedSession in
-                guard let self else { return }
-                self.serverSessionIds[session.id] = savedSession.id
-                if self.cancelledSessionIds.contains(session.id) {
-                    self.deleteServerSession(id: savedSession.id)
-                    return
-                }
-                if let todoIndex = self.todos.firstIndex(where: { $0.id == todoId }),
-                   let localSession = self.todos[todoIndex].timeSessions?.first(where: { $0.id == session.id }),
-                   localSession.end != nil {
-                    self.persistSessionEnd(localSession)
-                }
-            }
-            .store(in: &cancellables)
-    }
-
-    private func persistSessionEnd(_ session: TimeSession) {
-        guard api.isAuthenticated,
-              let end = session.end,
-              let serverId = serverSessionIds[session.id] else { return }
-        api.finishTimeSession(id: serverId, end: end)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { _ in }
-            .store(in: &cancellables)
+        return calendar.component(.hour, from: date) * 60 + calendar.component(.minute, from: date)
     }
 
     private func cancelSession(id localId: UUID) {
-        cancelledSessionIds.insert(localId)
-        if let serverId = serverSessionIds[localId] {
-            deleteServerSession(id: serverId)
-        }
+        deletedSessionIDs.insert(localId)
+        needsCloudSync = userAccount.isCloudSynced
+        persistAppState()
     }
 
-    private func deleteServerSession(id: UUID) {
-        guard api.isAuthenticated else { return }
-        api.deleteTimeSession(id: id)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { _ in }
-            .store(in: &cancellables)
+    static let freeCategoryLimit = 2
+
+    func canAddCategory(isPremium: Bool) -> Bool {
+        isPremium || categories.count < Self.freeCategoryLimit
     }
 
-    private func persistTodo(_ todo: TodoEntry) {
-        guard api.isAuthenticated else { return }
-
-        let mutationVersion = (todoMutationVersions[todo.id] ?? 0) + 1
-        todoMutationVersions[todo.id] = mutationVersion
-
-        api.updateTodo(todo)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { [weak self] savedTodo in
-                guard let self,
-                      self.todoMutationVersions[savedTodo.id] == mutationVersion,
-                      let index = self.todos.firstIndex(where: { $0.id == savedTodo.id }) else { return }
-                var mergedTodo = savedTodo
-                mergedTodo.timeSessions = self.todos[index].timeSessions
-                self.todos[index] = mergedTodo
-            }
-            .store(in: &cancellables)
-    }
-
-    func addCategory(name: String, colorHex: String, icon: String) {
+    func addCategory(name: String, colorHex: String, icon: String, isPremium: Bool) -> Category? {
+        guard canAddCategory(isPremium: isPremium) else { return nil }
         let cat = Category(id: UUID(), name: name, colorHex: colorHex, icon: icon, notes: "# \(icon) \(name) Document\n\nType notes...")
         categories.append(cat)
-        guard api.isAuthenticated else { return }
-
-        api.createCategory(cat)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { [weak self] createdCategory in
-                guard let self,
-                      let index = self.categories.firstIndex(where: { $0.id == cat.id }) else { return }
-                self.categories[index] = createdCategory
-                for todoIndex in self.todos.indices where self.todos[todoIndex].categoryId == cat.id {
-                    self.todos[todoIndex].categoryId = createdCategory.id
-                }
-            }
-            .store(in: &cancellables)
+        return cat
     }
 
     func updateCategory(_ category: Category) {
         guard let index = categories.firstIndex(where: { $0.id == category.id }) else { return }
         categories[index] = category
-        guard api.isAuthenticated else { return }
-
-        api.updateCategory(category)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { [weak self] updatedCategory in
-                guard let self,
-                      let catIndex = self.categories.firstIndex(where: { $0.id == updatedCategory.id }) else { return }
-                self.categories[catIndex] = updatedCategory
-            }
-            .store(in: &cancellables)
     }
 
     func deleteCategory(id: UUID) {
-        guard let removedCategory = categories.first(where: { $0.id == id }) else { return }
-        let previousTodos = todos
+        guard categories.contains(where: { $0.id == id }) else { return }
+        deletedCategoryIDs.insert(id)
         categories.removeAll { $0.id == id }
         for index in todos.indices where todos[index].categoryId == id {
             todos[index].categoryId = nil
         }
-        guard api.isAuthenticated else { return }
-
-        api.deleteCategory(id: id)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] completion in
-                if case let .failure(error) = completion {
-                    self?.categories.append(removedCategory)
-                    self?.todos = previousTodos
-                    self?.errorMessage = error.localizedDescription
-                }
-            } receiveValue: { _ in }
-            .store(in: &cancellables)
     }
 }

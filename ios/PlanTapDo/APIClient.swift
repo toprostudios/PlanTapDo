@@ -10,16 +10,41 @@ final class APIClient {
     }
 
     struct RegisterResponse: Decodable {
+        let detail: String
+        let verificationRequired: Bool
+    }
+
+    struct MessageResponse: Decodable {
+        let detail: String
+    }
+
+    struct VerifiedAccountResponse: Decodable {
         let id: UUID
         let username: String
         let email: String
         let tokens: AuthTokens
+        let mfaEnabled: Bool
     }
 
     struct UserProfile: Decodable {
         let id: UUID
         let username: String
         let email: String
+        let mfaEnabled: Bool
+    }
+
+    struct MFASetupResponse: Decodable {
+        let secret: String
+        let provisioningUri: String
+    }
+
+    struct MFAConfirmationResponse: Decodable {
+        let recoveryCodes: [String]
+        let tokens: AuthTokens
+    }
+
+    struct MFATokenResponse: Decodable {
+        let tokens: AuthTokens
     }
 
     struct SyncStateResponse: Decodable {
@@ -77,8 +102,19 @@ final class APIClient {
     }
 
     private static func isAllowedBaseURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased(),
+              !host.isEmpty,
+              url.user == nil,
+              url.password == nil,
+              url.query == nil,
+              url.fragment == nil,
+              url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")) == "api" else {
+            return false
+        }
 #if DEBUG
-        return url.scheme == "https" || url.scheme == "http"
+        if url.scheme == "https" { return true }
+        return url.scheme == "http"
+            && ["localhost", "127.0.0.1", "::1", "[::1]"].contains(host)
 #else
         return url.scheme == "https"
 #endif
@@ -108,12 +144,58 @@ final class APIClient {
             "email": email,
             "password": password,
         ]
-        return encodedRequest("auth/register/", method: "POST", payload: payload)
+        return unauthenticatedEncodedRequest("auth/register/", method: "POST", payload: payload)
     }
 
-    func login(username: String, password: String) -> AnyPublisher<AuthTokens, Error> {
-        let payload = ["username": username, "password": password]
-        return encodedRequest("auth/token/", method: "POST", payload: payload)
+    func confirmEmail(email: String, code: String) -> AnyPublisher<VerifiedAccountResponse, Error> {
+        unauthenticatedEncodedRequest(
+            "auth/email/verify/confirm/",
+            method: "POST",
+            payload: EmailCodePayload(email: email, code: code, clientLabel: "PlanTapDo iOS")
+        )
+    }
+
+    func resendEmailVerification(email: String) -> AnyPublisher<RegisterResponse, Error> {
+        unauthenticatedEncodedRequest(
+            "auth/email/verify/request/",
+            method: "POST",
+            payload: EmailRequestPayload(email: email)
+        )
+    }
+
+    func requestPasswordReset(email: String) -> AnyPublisher<MessageResponse, Error> {
+        unauthenticatedEncodedRequest(
+            "auth/password/reset/request/",
+            method: "POST",
+            payload: EmailRequestPayload(email: email)
+        )
+    }
+
+    func confirmPasswordReset(
+        email: String,
+        code: String,
+        newPassword: String
+    ) -> AnyPublisher<Void, Error> {
+        encodedVoidRequest(
+            "auth/password/reset/confirm/",
+            method: "POST",
+            payload: PasswordResetPayload(email: email, code: code, newPassword: newPassword),
+            authenticated: false
+        )
+    }
+
+    func login(
+        username: String,
+        password: String,
+        mfaCode: String = ""
+    ) -> AnyPublisher<AuthTokens, Error> {
+        let payload = LoginPayload(
+            username: username,
+            password: password,
+            mfaCode: mfaCode,
+            clientLabel: "PlanTapDo iOS"
+        )
+        return unauthenticatedEncodedRequest("auth/token/", method: "POST", payload: payload)
     }
 
     func fetchProfile() -> AnyPublisher<UserProfile, Error> {
@@ -124,11 +206,27 @@ final class APIClient {
         request("sync/")
     }
 
-    func syncTravelTimes(_ travelTimes: [String: Int]) -> AnyPublisher<SyncStateResponse, Error> {
+    func syncWorkspace(
+        categories: [Category],
+        todos: [TodoEntry],
+        sessions: [TimeSession],
+        travelTimes: [String: Int],
+        deletedTodoIDs: Set<UUID>,
+        deletedCategoryIDs: Set<UUID>,
+        deletedSessionIDs: Set<UUID>
+    ) -> AnyPublisher<SyncStateResponse, Error> {
         encodedRequest(
             "sync/",
             method: "POST",
-            payload: TravelTimeSyncPayload(locationTravelTimes: travelTimes)
+            payload: WorkspaceSyncPayload(
+                categories: categories,
+                todos: todos,
+                sessions: sessions,
+                locationTravelTimes: travelTimes,
+                deletedTodoIds: deletedTodoIDs.sorted { $0.uuidString < $1.uuidString },
+                deletedCategoryIds: deletedCategoryIDs.sorted { $0.uuidString < $1.uuidString },
+                deletedSessionIds: deletedSessionIDs.sorted { $0.uuidString < $1.uuidString }
+            )
         )
     }
 
@@ -151,6 +249,49 @@ final class APIClient {
         }
     }
 
+    func deleteAccount(password: String, mfaCode: String) -> AnyPublisher<Void, Error> {
+        encodedVoidRequest(
+            "auth/account/",
+            method: "DELETE",
+            payload: AccountDeletionPayload(password: password, mfaCode: mfaCode),
+            mayRefresh: true
+        )
+    }
+
+    func retryLogout(refreshToken: String) -> AnyPublisher<Void, Error> {
+        encodedVoidRequest(
+            "auth/logout/retry/",
+            method: "POST",
+            payload: ["refresh": refreshToken],
+            mayRefresh: false,
+            authenticated: false
+        )
+    }
+
+    func revokeAllSessions() -> AnyPublisher<Void, Error> {
+        voidRequest("auth/sessions/revoke-all/", method: "POST")
+    }
+
+    func startMFASetup(password: String) -> AnyPublisher<MFASetupResponse, Error> {
+        encodedRequest(
+            "auth/mfa/setup/",
+            method: "POST",
+            payload: ["password": password]
+        )
+    }
+
+    func confirmMFA(code: String) -> AnyPublisher<MFAConfirmationResponse, Error> {
+        encodedRequest("auth/mfa/confirm/", method: "POST", payload: ["code": code])
+    }
+
+    func disableMFA(password: String, code: String) -> AnyPublisher<MFATokenResponse, Error> {
+        encodedRequest(
+            "auth/mfa/disable/",
+            method: "POST",
+            payload: ["password": password, "code": code]
+        )
+    }
+
     func fetchTodos() -> AnyPublisher<[TodoEntry], Error> {
         request("todos/")
     }
@@ -167,12 +308,8 @@ final class APIClient {
         voidRequest("todos/\(id)/", method: "DELETE")
     }
 
-    func createTimeSession(todoId: UUID, start: Date) -> AnyPublisher<TimeSession, Error> {
-        let payload = [
-            "todo": todoId.uuidString,
-            "start": ISO8601DateFormatter().string(from: start),
-        ]
-        return encodedRequest("sessions/", method: "POST", payload: payload)
+    func createTimeSession(_ session: TimeSession) -> AnyPublisher<TimeSession, Error> {
+        encodedRequest("sessions/", method: "POST", payload: session)
     }
 
     func finishTimeSession(id: UUID, end: Date) -> AnyPublisher<TimeSession, Error> {
@@ -212,6 +349,48 @@ final class APIClient {
         }
     }
 
+    private func unauthenticatedEncodedRequest<T: Decodable, Payload: Encodable>(
+        _ endpoint: String,
+        method: String,
+        payload: Payload
+    ) -> AnyPublisher<T, Error> {
+        do {
+            return dataRequest(
+                endpoint,
+                method: method,
+                body: try jsonEncoder.encode(payload),
+                mayRefresh: false,
+                authenticated: false
+            )
+            .decode(type: T.self, decoder: jsonDecoder)
+            .eraseToAnyPublisher()
+        } catch {
+            return Fail(error: error).eraseToAnyPublisher()
+        }
+    }
+
+    private func encodedVoidRequest<Payload: Encodable>(
+        _ endpoint: String,
+        method: String,
+        payload: Payload,
+        mayRefresh: Bool = false,
+        authenticated: Bool = true
+    ) -> AnyPublisher<Void, Error> {
+        do {
+            return dataRequest(
+                endpoint,
+                method: method,
+                body: try jsonEncoder.encode(payload),
+                mayRefresh: mayRefresh,
+                authenticated: authenticated
+            )
+            .map { _ in () }
+            .eraseToAnyPublisher()
+        } catch {
+            return Fail(error: error).eraseToAnyPublisher()
+        }
+    }
+
     private func request<T: Decodable>(
         _ endpoint: String,
         method: String = "GET",
@@ -232,9 +411,15 @@ final class APIClient {
         _ endpoint: String,
         method: String,
         body: Data?,
-        mayRefresh: Bool
+        mayRefresh: Bool,
+        authenticated: Bool = true
     ) -> AnyPublisher<Data, Error> {
-        guard let request = makeRequest(endpoint: endpoint, method: method, body: body) else {
+        guard let request = makeRequest(
+            endpoint: endpoint,
+            method: method,
+            body: body,
+            authenticated: authenticated
+        ) else {
             return Fail(error: APIError.configuration).eraseToAnyPublisher()
         }
 
@@ -254,7 +439,8 @@ final class APIClient {
                             endpoint,
                             method: method,
                             body: body,
-                            mayRefresh: false
+                            mayRefresh: false,
+                            authenticated: authenticated
                         )
                     }
                     .eraseToAnyPublisher()
@@ -262,12 +448,17 @@ final class APIClient {
             .eraseToAnyPublisher()
     }
 
-    private func makeRequest(endpoint: String, method: String, body: Data?) -> URLRequest? {
+    private func makeRequest(
+        endpoint: String,
+        method: String,
+        body: Data?,
+        authenticated: Bool
+    ) -> URLRequest? {
         guard let url = resolvedURL(for: endpoint) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let accessToken = sessionSnapshot()?.access {
+        if authenticated, let accessToken = sessionSnapshot()?.access {
             request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
         request.httpBody = body
@@ -401,8 +592,42 @@ final class APIClient {
     }
 }
 
-private struct TravelTimeSyncPayload: Encodable {
+private struct WorkspaceSyncPayload: Encodable {
+    let categories: [Category]
+    let todos: [TodoEntry]
+    let sessions: [TimeSession]
     let locationTravelTimes: [String: Int]
+    let deletedTodoIds: [UUID]
+    let deletedCategoryIds: [UUID]
+    let deletedSessionIds: [UUID]
+}
+
+private struct EmailRequestPayload: Encodable {
+    let email: String
+}
+
+private struct EmailCodePayload: Encodable {
+    let email: String
+    let code: String
+    let clientLabel: String
+}
+
+private struct PasswordResetPayload: Encodable {
+    let email: String
+    let code: String
+    let newPassword: String
+}
+
+private struct AccountDeletionPayload: Encodable {
+    let password: String
+    let mfaCode: String
+}
+
+private struct LoginPayload: Encodable {
+    let username: String
+    let password: String
+    let mfaCode: String
+    let clientLabel: String
 }
 
 private struct RefreshResponse: Decodable {

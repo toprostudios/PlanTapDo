@@ -1,0 +1,20 @@
+-- Run with psql, never the web SQL editor:
+--   psql "$PROJECT_OWNER_DATABASE_URL" -f supabase/provision_tenant_context.psql
+-- The database generates the key. Copy the single 128-character value printed
+-- below into DB_TENANT_CONTEXT_KEY in the API secret manager. Do not capture
+-- this command's output in CI logs.
+
+\set ON_ERROR_STOP on
+\pset format unaligned
+\pset tuples_only on
+
+begin;
+insert into plantapdo_security.tenant_context_secret (singleton, secret)
+values (true, extensions.gen_random_bytes(64))
+on conflict (singleton) do nothing;
+
+\echo 'Copy this value to the API secret manager as DB_TENANT_CONTEXT_KEY:'
+select encode(secret, 'hex')
+from plantapdo_security.tenant_context_secret
+where singleton;
+commit;

@@ -86,10 +86,10 @@ struct SubscriptionOfferView: View {
             Spacer()
             Image(systemName: "sparkles")
                 .font(.system(size: 56, weight: .semibold))
-            Text("Try PlanTapDo free for 30 days")
+            Text("Unlock PlanTapDo Premium")
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
-            Text("Then $5.00 per month. Cancel anytime in your App Store account settings.")
+            Text("Create unlimited categories and unlock future Premium features.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.78))
                 .padding(.horizontal, 28)
@@ -113,26 +113,25 @@ struct SubscriptionOfferView: View {
                     .padding(.horizontal, 28)
             }
 
-            Button {
-                Task {
-                    await subscriptionManager.startSubscription()
-                    if subscriptionManager.hasActiveSubscription { onSubscribed() }
+            ForEach(SubscriptionManager.PremiumPlan.allCases) { plan in
+                Button {
+                    Task {
+                        await subscriptionManager.purchase(plan)
+                        if subscriptionManager.hasPremium { onSubscribed() }
+                    }
+                } label: {
+                    Text("\(plan.title) — \(plan.fallbackPrice)")
                 }
-            } label: {
-                HStack {
-                    if subscriptionManager.isLoading { ProgressView().tint(.indigo) }
-                    Text(subscriptionManager.isLoading ? "Starting trial…" : "Start 30-day free trial")
-                }
+                .buttonStyle(OnboardingPrimaryButtonStyle())
+                .padding(.horizontal, 24)
+                .disabled(subscriptionManager.isLoading)
             }
-            .buttonStyle(OnboardingPrimaryButtonStyle())
-            .padding(.horizontal, 24)
-            .disabled(subscriptionManager.isLoading)
 
             HStack(spacing: 24) {
                 Button("Restore Purchase") {
                     Task {
                         await subscriptionManager.restorePurchases()
-                        if subscriptionManager.hasActiveSubscription { onSubscribed() }
+                        if subscriptionManager.hasPremium { onSubscribed() }
                     }
                 }
                 .font(.footnote.weight(.semibold))

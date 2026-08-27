@@ -31,11 +31,6 @@ struct ContentView: View {
                     }
                     .tag(3)
 
-                if viewModel.isProReviewDemo {
-                    ProTeamReviewView(viewModel: viewModel)
-                        .tabItem { Label("Team", systemImage: "person.3.fill") }
-                        .tag(4)
-                }
             }
             .navigationTitle(navigationTitle(for: viewModel.selectedTab))
             .navigationBarTitleDisplayMode(.inline)
@@ -49,7 +44,6 @@ struct ContentView: View {
             .dismissKeyboardWhenBackgroundTapped()
             .onAppear {
                 viewModel.fetchTodos()
-                viewModel.pushOverdueTasks()
             }
             .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { now in
                 viewModel.pushOverdueTasks(at: now)
@@ -69,7 +63,6 @@ struct ContentView: View {
         case 0, 1: return ""
         case 2: return "🏷️ Categories"
         case 3: return "⚙️ Settings"
-        case 4: return "👥 Team"
         default: return "PlanTapDo"
         }
     }

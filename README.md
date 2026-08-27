@@ -5,7 +5,7 @@ PlanTapDo is a personal task planner for iPhone and iPad. The repository now con
 ## Repository layout
 
 - `ios/PlanTapDo`: SwiftUI application for iOS 16 and newer.
-- `backend`: Django 6 REST API, JWT authentication, and authenticated Channels WebSockets.
+- `backend`: Django 6 REST API, JWT authentication, authenticated Channels WebSockets, and a Supabase-ready private PostgreSQL schema.
 
 ## iOS app
 
@@ -21,18 +21,20 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
 
 The app provides Today, Future, Categories, and Settings tabs. Categories open into their own focused task lists, while Settings contains both general preferences and weekly reports. Tasks can repeat daily, weekly, monthly, or on selected weekdays, and completed tasks stay hidden unless **Show completed tasks** is enabled.
 
-Tasks without a planned time remain simple list items; scheduled tasks appear on the vertical calendar. The live current-time line updates every second. Overdue work is rescheduled in the stored task data, while the original planned block remains as a pale trail and timer sessions render as solid actual history in the category color (or black for unplanned work).
+Tasks without a planned time remain simple list items; scheduled tasks appear on the vertical calendar. The live current-time line updates every second. Unstarted work is moved forward in the stored schedule without leaving a calendar ghost. Only a timer session created by pressing **Start** becomes historical calendar evidence; it remains visible after the task is completed.
+
+Cloud accounts keep a protected local cache and synchronize categories, tasks, timer sessions, travel times, and offline deletions with the Django API. A pending local upload is persisted across launches so a temporary network failure cannot turn the next server refresh into local data loss.
 
 The Debug configuration uses `http://127.0.0.1:8000/api/`. Release builds fail closed until the `API_BASE_URL` Xcode build setting is set to the deployed API's public `https://` URL. Cloud credentials are stored in the iOS Keychain; local workspace state is stored with complete file protection in Application Support.
 
 Onboarding and payment are intentionally paused: their source files remain available for later work but are excluded from the application target. The current release opens directly into the core planner.
 
-Run the iOS unit tests after installing an iOS Simulator runtime in Xcode:
+Run the iOS unit tests on a connected iPhone or iPad:
 
 ```bash
 xcodebuild -project ios/PlanTapDo.xcodeproj \
   -scheme PlanTapDo \
-  -destination 'platform=iOS Simulator,name=<installed simulator name>' \
+  -destination 'platform=iOS,name=<connected device name>' \
   test
 ```
 
@@ -50,8 +52,14 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
   -destination generic/platform=iOS \
   -archivePath build/PlanTapDo.xcarchive \
   'API_BASE_URL=https://api.your-domain.example/api/' \
+  'PRIVACY_POLICY_URL=https://www.your-domain.example/privacy' \
+  'SUPPORT_URL=https://www.your-domain.example/support' \
   archive
 ```
+
+Both public links must be live before submission. The privacy policy link is
+shown inside Settings and must match the privacy-policy URL supplied in App
+Store Connect; the support page must include a working way to contact you.
 
 Use the repository's configured Apple team and automatic signing in Xcode, then
 validate and upload the archive from Organizer. Before each upload, increment
@@ -84,14 +92,25 @@ source venv/bin/activate
 daphne -b 0.0.0.0 -p 8000 timetodo_api.asgi:application
 ```
 
-Production configuration is fail-closed: without the required secrets, explicit hosts, PostgreSQL, and Redis, the application refuses to start. Follow [backend/DEPLOYMENT.md](backend/DEPLOYMENT.md) for the release command, reverse-proxy requirements, health checks, key rotation, backups, and security verification.
+Production configuration is fail-closed: without the required secrets, transactional SMTP, explicit hosts, dedicated Supabase PostgreSQL role/schema, signed RLS tenant context, verified TLS, and Redis, the application refuses to start. Bootstrap the database with [backend/SUPABASE.md](backend/SUPABASE.md), then follow [backend/DEPLOYMENT.md](backend/DEPLOYMENT.md) for the release command, reverse-proxy requirements, health checks, key rotation, backups, and security verification. The dated risk register and accepted product boundaries are in [SECURITY_REVIEW.md](SECURITY_REVIEW.md).
 
 ## API surface
 
 - `POST /api/auth/register/`
+- `POST /api/auth/email/verify/request/`
+- `POST /api/auth/email/verify/confirm/`
+- `POST /api/auth/password/reset/request/`
+- `POST /api/auth/password/reset/confirm/`
 - `POST /api/auth/token/`
 - `POST /api/auth/token/refresh/`
 - `POST /api/auth/logout/`
+- `GET /api/auth/sessions/`
+- `DELETE /api/auth/sessions/{session-id}/`
+- `POST /api/auth/sessions/revoke-all/`
+- `DELETE /api/auth/account/`
+- `POST /api/auth/mfa/setup/`
+- `POST /api/auth/mfa/confirm/`
+- `POST /api/auth/mfa/disable/`
 - `GET/PATCH /api/auth/me/`
 - `/api/todos/`
 - `/api/categories/`

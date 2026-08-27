@@ -4,20 +4,20 @@ This directory prepares the API for a managed AWS deployment. Use **ECS on Farga
 
 ```text
 Internet → Route 53 → ACM certificate → Application Load Balancer → ECS/Fargate (2+ tasks)
-                                                            ├── RDS Proxy → PostgreSQL (private)
+                                                            ├── NAT → Supabase PostgreSQL
                                                             └── ElastiCache Redis TLS (private)
 ```
 
-The ALB is the only public component. Fargate tasks, RDS, and Redis belong in private subnets across at least two Availability Zones. The API image is stored in ECR and task logs go to CloudWatch Logs.
+The ALB is the only component with direct public ingress. Fargate tasks and Redis belong in private subnets across at least two Availability Zones; controlled NAT egress reaches Supabase. Restrict Supabase database access to the NAT gateways' fixed public addresses. The API image is stored in ECR and task logs go to CloudWatch Logs.
 
 ## Before deployment
 
 Create these AWS resources, all in one region:
 
-1. A VPC with two public subnets for the ALB and two private subnets for ECS, RDS, and Redis. Give private ECS subnets NAT egress so tasks can pull from ECR, write logs, and send telemetry.
+1. A VPC with two public subnets for the ALB/NAT gateways and two private subnets for ECS and Redis. Give each NAT gateway a stable Elastic IP; tasks need controlled egress for Supabase, ECR, logs, and telemetry.
 2. An ACM certificate for `api.your-domain.example`, validated in Route 53, and a public Application Load Balancer with an HTTPS listener. Redirect HTTP (80) to HTTPS (443).
-3. An RDS PostgreSQL instance or Multi-AZ cluster with KMS storage encryption, automated backups, deletion protection, TLS required, and a private subnet group. Create the `plantapdo` database and a least-privilege `plantapdo` database user. Put an RDS Proxy in front of it, require TLS on the proxy, and use the proxy endpoint as `POSTGRES_HOST`; this lets the standard container CA bundle verify the endpoint certificate with `sslmode=verify-full`.
-4. A TLS-enabled ElastiCache Redis deployment with KMS encryption at rest, in-transit encryption, and an ACL authentication token. It must be private and its endpoint must be expressed as `rediss://default:PASSWORD@HOST:PORT/0?ssl_cert_reqs=required`.
+3. A hardened Supabase project bootstrapped according to [`../SUPABASE.md`](../SUPABASE.md). Use the shared pooler's session-mode endpoint on port 5432 for IPv4 ECS tasks, allowlist only the NAT Elastic IPs, enable database SSL enforcement, disable the unused Data API, and enable the required backup/PITR tier. Download the Supabase CA to `backend/certs/supabase-ca.crt` in the protected CI build context.
+4. A TLS-enabled ElastiCache Redis deployment with KMS encryption at rest, in-transit encryption, and an ACL authentication token. It must be private and its endpoint must be expressed as `rediss://default:PASSWORD@HOST:PORT/0?ssl_cert_reqs=required&ssl_check_hostname=true`.
 5. An ECR repository named `plantapdo-api`, an ECS cluster, a CloudWatch log group named `/ecs/plantapdo-api` (30+ day retention), and an ECS service.
 
 Security groups must permit only these flows:
@@ -26,10 +26,10 @@ Security groups must permit only these flows:
 | --- | --- | --- |
 | Internet | ALB | 443 |
 | ALB security group | ECS task security group | 8000 |
-| ECS task security group | RDS security group | 5432 |
+| ECS task through controlled NAT | Supabase session pooler | 5432 |
 | ECS task security group | Redis security group | Redis endpoint port |
 
-Do not assign public IPs to ECS tasks and do not allow database or Redis ingress from the internet.
+Do not assign public IPs to ECS tasks. Keep Redis private and do not leave Supabase database ingress open to arbitrary addresses.
 
 ## Secrets and IAM
 
@@ -39,8 +39,13 @@ Store one JSON secret in AWS Secrets Manager. Its keys must be:
 {
   "DJANGO_SECRET_KEY": "at-least-64-random-characters",
   "JWT_SIGNING_KEY": "a-different-at-least-64-random-characters",
-  "POSTGRES_PASSWORD": "the-database-password",
-  "REDIS_URL": "rediss://default:redis-password@redis-host:6379/0?ssl_cert_reqs=required",
+  "DB_TENANT_CONTEXT_KEY": "the-same-128-character-hex-key-provisioned-in-supabase",
+  "MFA_ENCRYPTION_KEY": "an-independent-fernet-key",
+  "POSTGRES_RUNTIME_PASSWORD": "the-runtime-role-password",
+  "POSTGRES_MIGRATOR_PASSWORD": "the-separate-migration-role-password",
+  "REDIS_URL": "rediss://default:redis-password@redis-host:6379/0?ssl_cert_reqs=required&ssl_check_hostname=true",
+  "EMAIL_HOST_USER": "transactional-mail-user",
+  "EMAIL_HOST_PASSWORD": "transactional-mail-password",
   "SENTRY_DSN": ""
 }
 ```
@@ -65,7 +70,7 @@ docker tag "plantapdo-api:$IMAGE_TAG" "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazo
 docker push "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/plantapdo-api:$IMAGE_TAG"
 ```
 
-Set the image URI, region, public API hostname, RDS Proxy endpoint, secret ARN, task roles, and release SHA in `task-definition.template.json`. Validate that no `REPLACE_WITH_` value remains, then register it:
+Set the image URI, AWS/Supabase regions, Supabase project reference/session-pooler host, public API hostname, secret ARN, task roles, and release SHA in `task-definition.template.json`. Confirm the reviewed Supabase CA is present in the build context. Validate that no `REPLACE_WITH_` value remains, then register it:
 
 ```bash
 aws ecs register-task-definition --cli-input-json file://backend/aws/task-definition.template.json
@@ -87,13 +92,17 @@ Set `DJANGO_ALLOWED_HOSTS` to the exact public API hostname, not a URL. `DJANGO_
 
 ## Migrations and release
 
-Run migrations as a one-off ECS task using the **same task definition, private subnets, security group, and secret injection** as the service, overriding its command with:
+Run migrations as a one-off ECS task using the same image, private subnets, and security group as the service, but a separate task-definition revision that sets `DATABASE_ROLE=migration`, uses `plantapdo_migrator.<project-ref>`, and maps `POSTGRES_PASSWORD` from `POSTGRES_MIGRATOR_PASSWORD`. Never give the long-running service this secret. Override the migration task command with:
 
 ```text
 python manage.py migrate --noinput
 ```
 
-Wait for that task to succeed before updating the ECS service. Do not run migrations from every web task at startup.
+Migration `0008_enable_tenant_rls` creates the tenant policies automatically
+and fails the release if the Supabase security bootstrap/key is missing. Run
+`supabase/verify.sql` as the project owner after the task. Wait for both to
+succeed before updating the ECS service. Do not run migrations from every web
+task at startup.
 
 Then deploy the registered revision and wait until the service is stable:
 
@@ -108,8 +117,8 @@ Verify `https://api.your-domain.example/health/live/` and `/health/ready/` retur
 ## Operations checklist
 
 - Schedule `python manage.py flushexpiredtokens` daily as an ECS scheduled task using the same security configuration.
-- Enable RDS automated backups, point-in-time recovery, maintenance notifications, and restore testing.
-- Alert on ALB 5xx, ECS task restarts, RDS capacity/connections, Redis memory/evictions, and application 401/403/429/5xx rates.
+- Enable the appropriate Supabase backup/PITR tier, database/maintenance notifications, and restore testing.
+- Alert on ALB 5xx, ECS task restarts, Supabase capacity/connections, Redis memory/evictions, and application 401/403/429/5xx rates.
 - Rotate Secrets Manager values deliberately. ECS-injected secrets do not refresh in running tasks; deploy a new task revision after rotation.
 - Keep images immutable, scan them before release, and retain a known-good previous task definition for rollback.
 - Enable CloudTrail, GuardDuty, Security Hub, AWS Config, ECR enhanced scanning, and alarms for Secrets Manager/KMS policy changes. Encrypt CloudWatch Logs with KMS and restrict log access because operational metadata can still be sensitive.
