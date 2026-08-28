@@ -137,7 +137,7 @@ struct CalendarHourlyGrid: View {
             let hasRecordedWork = ($0.timeSessions ?? []).contains {
                 $0.end != nil && ($0.duration ?? 0) > 0
             }
-            calendar.isDate($0.doDate, inSameDayAs: targetDate)
+            return calendar.isDate($0.doDate, inSameDayAs: targetDate)
                 && $0.plannedStartTime?.isEmpty == false
                 && ($0.status != .completed || hasRecordedWork)
                 && $0.status != .archived
