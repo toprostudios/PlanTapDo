@@ -29,9 +29,9 @@ PlanTapDo turns a personal task list into a live daily schedule.
   retain their true start times and can overlap visually. Completed tasks in
   the same 15-minute window are shown together as a comma-separated history
   card.
-- Tap once to start or stop a calendar task, double tap to open its details,
-  and triple tap to mark it complete. Completing unstarted future work removes
-  it; completing work with recorded time preserves its historical block.
+- Tap once to open a calendar task, double tap to start or stop it, and triple
+  tap to toggle completion—the same behavior as the completion circle in the
+  task list.
 - Stopping work preserves the elapsed segment as a normal-colored historical
   block and creates a separate pending task for any remaining planned time.
 - The Running Tasks setting controls handoff. When automatic handoff is on,

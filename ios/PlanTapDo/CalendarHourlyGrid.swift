@@ -856,7 +856,9 @@ struct CalendarCardView: View {
         let colWidth = containerWidth / CGFloat(layout.totalCols)
         let leftOffset = CGFloat(layout.colIndex) * colWidth
         let currentDragOffset = (draggingTodoId == todo.id) ? dragYTranslation : 0
-        let showsCardText = !isCompact && colWidth >= 88
+        // Week columns are narrow, but still show a compact title rather than
+        // becoming unlabeled colored bars. The card itself stays inside its day.
+        let showsCardText = colWidth >= 32
         let showsTime = showsCardText && metrics.height >= 44
         let verticalPadding: CGFloat = metrics.height < 36 ? 2 : 6
 
@@ -864,7 +866,7 @@ struct CalendarCardView: View {
             if showsCardText {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 3) {
-                        if let icon = cat?.icon {
+                        if !isCompact, let icon = cat?.icon {
                             Text(icon).font(.system(size: 10))
                         }
 
@@ -895,12 +897,12 @@ struct CalendarCardView: View {
             }
         }
         .padding(.vertical, verticalPadding)
-        .padding(.leading, 8)
-        .padding(.trailing, 6)
+        .padding(.leading, isCompact ? 3 : 8)
+        .padding(.trailing, isCompact ? 2 : 6)
         // Apply the exact timeline size before drawing and clipping. Clipping
         // earlier used the text's intrinsic size, which let long titles escape
         // the calendar block after its final frame was applied.
-        .frame(width: max(45, colWidth - 4), height: metrics.height, alignment: .topLeading)
+        .frame(width: max(1, colWidth - 4), height: metrics.height, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 14)
                 .fill(metrics.isPushed ? catColor.opacity(0.58) : catColor)
@@ -945,19 +947,22 @@ struct CalendarCardView: View {
         if consecutiveTapCount >= 3 {
             consecutiveTapCount = 0
             AppHaptics.success()
-            viewModel.completeFromCalendar(todo)
+            viewModel.toggleComplete(todo)
             return
         }
 
         // Defer a one- or two-tap action just long enough to recognize a
-        // higher-count gesture. This avoids starting a task before a double
-        // tap opens it, or starting/stopping it before a triple tap completes it.
+        // higher-count gesture. This avoids opening before a double tap starts
+        // or stops, and avoids either action before a triple tap completes.
         let reset = DispatchWorkItem {
             let tapCount = consecutiveTapCount
             consecutiveTapCount = 0
 
             switch tapCount {
             case 1:
+                AppHaptics.impact(.light)
+                onOpen()
+            case 2:
                 if isTimerActive {
                     AppHaptics.impact(.medium)
                     viewModel.stopTimer()
@@ -965,9 +970,6 @@ struct CalendarCardView: View {
                     AppHaptics.impact(.medium)
                     viewModel.startTimer(for: todo)
                 }
-            case 2:
-                AppHaptics.impact(.medium)
-                onOpen()
             default:
                 break
             }
