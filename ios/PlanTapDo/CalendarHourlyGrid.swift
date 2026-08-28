@@ -205,7 +205,7 @@ struct CalendarHourlyGrid: View {
             .padding(.horizontal, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
             .frame(height: 20)
-            .background(RoundedRectangle(cornerRadius: 7).fill(Color.indigo.opacity(0.88)))
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.indigo.opacity(0.88)))
             .padding(.horizontal, 2)
             .contentShape(Rectangle())
             .offset(y: CGFloat(stack.startMinute - 7 * 60) * pointsPerMinute)
@@ -377,10 +377,10 @@ struct CalendarHourlyGrid: View {
                                             // Blocked time is a background layer; allowed category tasks remain above it.
                                             ForEach(focusBlocksForDay) { block in
                                                 if let metrics = focusBlockMetrics(for: block) {
-                                                    RoundedRectangle(cornerRadius: 8)
+                                                    RoundedRectangle(cornerRadius: 14)
                                                         .fill(Color.indigo.opacity(0.12))
                                                         .overlay {
-                                                            RoundedRectangle(cornerRadius: 8)
+                                                            RoundedRectangle(cornerRadius: 14)
                                                                 .stroke(Color.indigo.opacity(0.35), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
                                                         }
                                                         .frame(width: max(35, geo.size.width - 6), height: metrics.height)
@@ -436,11 +436,11 @@ struct CalendarHourlyGrid: View {
                                                 }
                                                 .frame(width: max(35, geo.size.width - 4), height: tb.height, alignment: .leading)
                                                 .background(
-                                                    RoundedRectangle(cornerRadius: 6)
+                                                    RoundedRectangle(cornerRadius: 12)
                                                         .fill(Color.orange.opacity(0.18))
                                                 )
                                                 .overlay(
-                                                    RoundedRectangle(cornerRadius: 6)
+                                                    RoundedRectangle(cornerRadius: 12)
                                                         .stroke(Color.orange, style: StrokeStyle(lineWidth: 1, dash: [3]))
                                                 )
                                                 .offset(x: 2, y: tb.top)
@@ -849,7 +849,7 @@ struct CalendarCardView: View {
         // the calendar block after its final frame was applied.
         .frame(width: max(45, colWidth - 4), height: metrics.height, alignment: .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: 14)
                 .fill(metrics.isPushed ? catColor.opacity(0.58) : catColor)
         )
         .overlay(
@@ -858,8 +858,8 @@ struct CalendarCardView: View {
                 .frame(width: 3),
             alignment: .leading
         )
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .contentShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .contentShape(RoundedRectangle(cornerRadius: 14))
         .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
         .animation(.linear(duration: 0.2), value: metrics.top)
         .onTapGesture { handleTaskTap() }
