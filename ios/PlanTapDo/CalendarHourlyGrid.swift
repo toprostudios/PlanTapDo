@@ -753,6 +753,10 @@ struct CalendarCardView: View {
         }
         .padding(.vertical, verticalPadding)
         .padding(.trailing, 6)
+        // Apply the exact timeline size before drawing and clipping. Clipping
+        // earlier used the text's intrinsic size, which let long titles escape
+        // the calendar block after its final frame was applied.
+        .frame(width: max(45, colWidth - 4), height: metrics.height, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 8)
                 .fill(metrics.isPushed ? catColor.opacity(0.58) : catColor)
@@ -764,7 +768,7 @@ struct CalendarCardView: View {
             alignment: .leading
         )
         .clipShape(RoundedRectangle(cornerRadius: 8))
-        .frame(width: max(45, colWidth - 4), height: metrics.height, alignment: .topLeading)
+        .contentShape(RoundedRectangle(cornerRadius: 8))
         .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
         .animation(.linear(duration: 0.2), value: metrics.top)
         .onTapGesture { handleTaskTap() }
