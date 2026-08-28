@@ -1173,7 +1173,65 @@ class TodoViewModel: ObservableObject {
         }
         applyFocusRule(to: &updatedTodo)
         if let index = todos.firstIndex(where: { $0.id == todo.id }) {
+            let previous = todos[index]
             todos[index] = updatedTodo
+            let scheduleChanged = !Calendar.current.isDate(previous.doDate, inSameDayAs: updatedTodo.doDate)
+                || previous.plannedStartTime != updatedTodo.plannedStartTime
+            if updatedTodo.status == .pending, scheduleChanged {
+                reflowPendingTasks(afterMoving: updatedTodo.id)
+            }
+        }
+    }
+
+    /// A calendar drag establishes a new anchor in the day's sequence. Keep
+    /// earlier tasks in place and move every pending task at or after the drop
+    /// time so the calendar behaves like one live, contiguous schedule.
+    func reflowPendingTasks(afterMoving todoID: UUID) {
+        guard let movedIndex = todos.firstIndex(where: { $0.id == todoID }),
+              todos[movedIndex].status == .pending,
+              let movedTime = todos[movedIndex].plannedStartTime else { return }
+
+        let calendar = Calendar.current
+        let day = calendar.startOfDay(for: todos[movedIndex].doDate)
+        let movedMinute = Self.minutes(from: movedTime)
+        let affectedIndices = todos.indices
+            .filter { index in
+                let candidate = todos[index]
+                guard candidate.id != todoID,
+                      candidate.status == .pending,
+                      calendar.isDate(candidate.doDate, inSameDayAs: day),
+                      let time = candidate.plannedStartTime else { return false }
+                return Self.minutes(from: time) >= movedMinute
+            }
+            .sorted { lhs, rhs in
+                let left = todos[lhs].plannedStartTime ?? "23:59"
+                let right = todos[rhs].plannedStartTime ?? "23:59"
+                if left == right { return todos[lhs].id.uuidString < todos[rhs].id.uuidString }
+                return left < right
+            }
+
+        let movableIDs = Set(affectedIndices.map { todos[$0].id })
+        var cursorDate = day
+        var cursorMinute = movedMinute + max(5, Int(ceil(todos[movedIndex].plannedDuration / 60)))
+
+        for index in affectedIndices {
+            guard let time = todos[index].plannedStartTime else { continue }
+            let slot = nextOpenSlot(
+                for: todos[index],
+                onOrAfter: cursorDate,
+                from: calendar.isDate(cursorDate, inSameDayAs: day)
+                    ? max(Self.minutes(from: time), cursorMinute)
+                    : cursorMinute,
+                ignoring: movableIDs
+            )
+            todos[index].doDate = slot.date
+            todos[index].plannedStartTime = Self.timeString(from: slot.minute)
+            cursorDate = slot.date
+            cursorMinute = slot.minute + max(5, Int(ceil(todos[index].plannedDuration / 60)))
+            if cursorMinute >= 22 * 60 {
+                cursorDate = calendar.date(byAdding: .day, value: 1, to: cursorDate) ?? cursorDate
+                cursorMinute = 7 * 60
+            }
         }
     }
 
