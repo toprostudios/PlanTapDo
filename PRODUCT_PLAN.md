@@ -24,9 +24,16 @@ PlanTapDo turns a personal task list into a live daily schedule.
   following work forward.
 - Starting work moves that task to the current time. The one task card displays
   the stopwatch and grows when work exceeds its planned duration.
-- Calendar task cards use their actual scheduled height: 30 minutes is half an
-  hour block and 60 minutes is one full hour block. Tap once to start, tap
-  again to stop, and tap a third time within three seconds to open task details.
+- Calendar task cards have a 15-minute minimum display height while keeping
+  their exact planned and tracked duration in storage. Short planned cards
+  retain their true start times and can overlap visually. Completed tasks in
+  the same 15-minute window are shown together as a comma-separated history
+  card.
+- Tap once to start or stop a calendar task, double tap to open its details,
+  and triple tap to mark it complete. Completing unstarted future work removes
+  it; completing work with recorded time preserves its historical block.
+- Stopping work preserves the elapsed segment as a normal-colored historical
+  block and creates a separate pending task for any remaining planned time.
 - The Running Tasks setting controls handoff. When automatic handoff is on,
   starting a second task records the first segment and places its unfinished
   remainder after the new task. When it is off, the current task must stop
@@ -59,6 +66,8 @@ show the purchase in App Store Connect metadata and review notes.
 - The privacy policy must accurately describe on-device task storage and any
   purchase data handled by Apple. It must not claim cloud sync.
 - The support URL must provide a real way to contact the developer.
+- Publish the versioned sources in `docs/publishable-text/` at the privacy and
+  support URLs before archiving. These legal pages do not define product scope.
 - Test the complete release build on physical iPhone and iPad hardware before
   submission. Submit truthful screenshots and metadata for the shipped feature
   set.

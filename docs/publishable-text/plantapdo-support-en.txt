@@ -1,0 +1,21 @@
+# PlanTapDo Support
+
+**Last updated:** August 27, 2026
+
+## Get help
+
+For accessibility, privacy, billing, or technical help, email **yangli@toproindustry.site**. Include the device model, iOS version, and a description of the issue if you can. Do not send passwords, payment-card numbers, or other sensitive information.
+
+## Your tasks and local data
+
+PlanTapDo version 1 stores tasks, schedules, timer history, reports, and preferences on your device. There is no PlanTapDo account or cloud sync service in this version.
+
+You can edit or delete tasks and categories in the app. Removing the app generally removes its local data from that device. If Apple device backup is enabled, a backup may remain under your Apple account settings and Apple's policies; PlanTapDo cannot view, restore, or delete that backup.
+
+## Purchases and category unlocks
+
+PlanTapDo's optional category upgrade is processed by Apple through the App Store. To restore an eligible purchase, use the app's restore-purchases control. To manage or cancel an Apple subscription, if one is offered, visit [Apple subscription settings](https://apps.apple.com/account/subscriptions). Refund eligibility is determined by Apple and applicable consumer law; you can request a refund through [Apple's Report a Problem service](https://reportaproblem.apple.com/).
+
+## Privacy
+
+PlanTapDo does not collect task data through the app in version 1. If you contact support, we use the information in your message only to respond and resolve your request. Read the PlanTapDo Privacy Policy for details and privacy-request contact information.
