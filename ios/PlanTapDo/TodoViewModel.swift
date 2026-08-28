@@ -59,6 +59,7 @@ class TodoViewModel: ObservableObject {
     @Published var activeTimerTodoId: UUID? = nil
     @Published var timerSecondsElapsed: Int = 0
     @Published private(set) var startUndoTitle: String?
+    @Published private(set) var stopFeedbackTitle: String?
     private var timer: Timer? = nil
     private var activeTimerSessionId: UUID? = nil
 
@@ -78,8 +79,10 @@ class TodoViewModel: ObservableObject {
 
     private var startUndoSnapshot: StartUndoSnapshot?
     private var startUndoTimer: Timer?
+    private var stopFeedbackTimer: Timer?
 
     var canUndoLastStart: Bool { startUndoSnapshot != nil }
+    var hasStopFeedback: Bool { stopFeedbackTitle != nil }
 #if TEAM_VIEW_ENABLED
     // Deactivated legacy Team state. This flag is intentionally undefined in
     // every active build configuration, excluding it from app builds.
@@ -96,6 +99,7 @@ class TodoViewModel: ObservableObject {
     func startTimer(for todo: TodoEntry) {
         guard let idx = todos.firstIndex(where: { $0.id == todo.id }) else { return }
 
+        clearStopFeedback()
         let now = Date()
         if activeTimerTodoId != nil {
             guard automaticallySwitchRunningTask else { return }
@@ -209,6 +213,9 @@ class TodoViewModel: ObservableObject {
     }
 
     func stopTimer() {
+        let stoppedTitle = activeTimerTodoId.flatMap { activeId in
+            todos.first(where: { $0.id == activeId })?.title
+        }
         if let activeId = activeTimerTodoId, let idx = todos.firstIndex(where: { $0.id == activeId }) {
             todos[idx].status = .inProgress
             if let sessionId = activeTimerSessionId,
@@ -222,6 +229,9 @@ class TodoViewModel: ObservableObject {
         }
         clearTimerState()
         clearStartUndo()
+        if let stoppedTitle {
+            showStopFeedback(for: stoppedTitle)
+        }
     }
 
     func undoLastStart() {
@@ -260,6 +270,20 @@ class TodoViewModel: ObservableObject {
         startUndoTimer = Timer.scheduledTimer(withTimeInterval: 7, repeats: false) { [weak self] _ in
             self?.clearStartUndo()
         }
+    }
+
+    private func showStopFeedback(for title: String) {
+        stopFeedbackTimer?.invalidate()
+        stopFeedbackTitle = title
+        stopFeedbackTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { [weak self] _ in
+            self?.clearStopFeedback()
+        }
+    }
+
+    private func clearStopFeedback() {
+        stopFeedbackTimer?.invalidate()
+        stopFeedbackTimer = nil
+        stopFeedbackTitle = nil
     }
 
 

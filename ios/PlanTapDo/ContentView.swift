@@ -55,6 +55,10 @@ struct ContentView: View {
                     StartNowUndoBar(viewModel: viewModel)
                         .padding(.horizontal, 12)
                         .padding(.bottom, 4)
+                } else if viewModel.hasStopFeedback {
+                    StopTimerFeedbackBar(title: viewModel.stopFeedbackTitle ?? "task")
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 4)
                 }
             }
         }
@@ -92,6 +96,25 @@ private struct StartNowUndoBar: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
         .background(Capsule().fill(Color.indigo))
+        .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
+    }
+}
+
+private struct StopTimerFeedbackBar: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "stop.fill")
+            Text("Stopped \(title)")
+                .font(.caption.weight(.semibold))
+                .lineLimit(1)
+            Spacer()
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Capsule().fill(Color.secondary))
         .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
     }
 }
