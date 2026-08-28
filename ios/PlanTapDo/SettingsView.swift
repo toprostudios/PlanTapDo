@@ -106,7 +106,17 @@ private struct OffTimeSettingsView: View {
     var body: some View {
         Form {
             Section("Off time") {
-                Toggle("Hide tasks during off time", isOn: $isEnabled)
+                Toggle(isOn: $isEnabled) {
+                    HStack {
+                        Text("Hide tasks during off time")
+                        Spacer()
+                        if isEnabled {
+                            Text("\(time(start)) – \(time(end))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
                 Text("No tasks are scheduled during this time. It is useful for sleep or unavailable hours.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -131,7 +141,13 @@ private struct OffTimeSettingsView: View {
         .onChange(of: end) { _ in save() }
     }
 
-    private func time(_ minutes: Int) -> String { String(format: "%d:%02d", minutes / 60, minutes % 60) }
+    private func time(_ minutes: Int) -> String {
+        let normalized = minutes % (24 * 60)
+        let hour = normalized / 60
+        let period = hour >= 12 ? "PM" : "AM"
+        let displayHour = hour % 12 == 0 ? 12 : hour % 12
+        return "\(displayHour):\(String(format: "%02d", normalized % 60)) \(period)"
+    }
 
     private func load() {
         guard let block = viewModel.focusBlocks.first else { return }

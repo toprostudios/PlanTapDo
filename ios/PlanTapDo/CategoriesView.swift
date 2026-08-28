@@ -319,10 +319,12 @@ private struct CategoryTaskComposerView: View {
     @State private var scheduledDate = Date()
     @State private var hasPlannedTime = true
     @State private var plannedTime = Date()
-    @State private var durationMinutes = 30
+    @State private var durationMinutes = 5
     @State private var recurrence: RecurrenceFrequency = .none
     @State private var selectedWeekdays = Set<Int>()
     @State private var notificationPreference: NotificationPreference?
+    @State private var showingCustomDuration = false
+    @State private var customDurationText = "5"
 
     var body: some View {
         NavigationStack {
@@ -351,16 +353,17 @@ private struct CategoryTaskComposerView: View {
 
                     if hasPlannedTime {
                         DatePicker("Start", selection: $plannedTime, displayedComponents: .hourAndMinute)
-                        HStack {
-                            Text("Duration")
-                            Spacer()
-                            Picker("Duration", selection: $durationMinutes) {
-                                ForEach([15, 30, 45, 60, 90, 120], id: \.self) { minutes in
-                                    Text(minutes < 60 ? "\(minutes) min" : "\(Double(minutes) / 60, specifier: "%.1g") hr")
-                                        .tag(minutes)
-                                }
+                        Picker("Duration", selection: $durationMinutes) {
+                            ForEach(durationChoices, id: \.self) { minutes in
+                                Text(durationLabel(minutes)).tag(minutes)
                             }
-                            .pickerStyle(.menu)
+                        }
+                        .pickerStyle(.wheel)
+                        .frame(height: 118)
+                        .clipped()
+                        Button("Custom duration") {
+                            customDurationText = String(durationMinutes)
+                            showingCustomDuration = true
                         }
                     }
                 }
@@ -389,6 +392,32 @@ private struct CategoryTaskComposerView: View {
                 }
             }
         }
+        .sheet(isPresented: $showingCustomDuration) {
+            NavigationStack {
+                Form {
+                    Section("Minutes") {
+                        TextField("Minutes", text: $customDurationText)
+                            .keyboardType(.numberPad)
+                    }
+                    Text("Choose any duration from 1 minute to 24 hours.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .navigationTitle("Custom duration")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showingCustomDuration = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Set") {
+                            durationMinutes = min(24 * 60, max(1, Int(customDurationText) ?? durationMinutes))
+                            showingCustomDuration = false
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.fraction(0.3)])
+        }
     }
 
     private func addTask() {
@@ -413,6 +442,17 @@ private struct CategoryTaskComposerView: View {
                 : nil
         )
         dismiss()
+    }
+
+    private var durationChoices: [Int] {
+        [5, 15, 30] + Array(stride(from: 60, through: 24 * 60, by: 30))
+    }
+
+    private func durationLabel(_ minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(hours) hr" : "\(hours) hr \(remainder) min"
     }
 }
 

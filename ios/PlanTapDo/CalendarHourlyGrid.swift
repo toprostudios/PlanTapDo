@@ -442,7 +442,13 @@ struct CalendarHourlyGrid: View {
                                             ForEach(visibleTodos) { todo in
                                                 let metrics = getPushedMetrics(for: todo, targetDate: colDate)
                                                 let cat = category(for: todo.categoryId)
-                                                let layout = overlapMap[todo.id] ?? (0, 1)
+                                                // Brief planned work keeps its true start position and
+                                                // layers in one lane rather than being squeezed into columns.
+                                                let isShortPlannedTask = todo.status == .pending
+                                                    && todo.plannedDuration < 15 * 60
+                                                let layout = isShortPlannedTask
+                                                    ? (0, 1)
+                                                    : (overlapMap[todo.id] ?? (0, 1))
 
                                                 CalendarCardView(
                                                     todo: todo,
@@ -555,6 +561,11 @@ struct CalendarHourlyGrid: View {
     }
 
     private func updateTimeForTodo(_ todo: TodoEntry, verticalOffset: CGFloat) {
+        // Recorded work is history, not something that can be rescheduled.
+        // Only pending work may be dragged, and today's pending work is kept
+        // at or ahead of the current time below.
+        guard todo.status == .pending,
+              (todo.timeSessions ?? []).isEmpty else { return }
         let originalTimeStr = todo.plannedStartTime ?? "09:00"
         let parts = originalTimeStr.split(separator: ":").compactMap { Double($0) }
         let originalH = parts.first ?? 9.0
@@ -612,10 +623,12 @@ struct TaskComposerView: View {
     @State private var title = ""
     @State private var notes = ""
     @State private var startDate: Date
-    @State private var duration = 30
+    @State private var duration = 5
     @State private var categoryId: UUID?
     @State private var notificationPreference: NotificationPreference?
     @State private var showingAddCategory = false
+    @State private var showingCustomDuration = false
+    @State private var customDurationText = "5"
 
     init(viewModel: TodoViewModel, start: Date, showsSchedule: Bool = true) {
         self.viewModel = viewModel
@@ -652,61 +665,67 @@ struct TaskComposerView: View {
                                 Text("Duration")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.secondary)
-                                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 8) {
-                                    ForEach([15, 30, 45, 60, 90, 120], id: \.self) { minutes in
-                                        Button(durationLabel(minutes)) { duration = minutes }
-                                            .font(.caption.weight(.bold))
-                                            .foregroundStyle(duration == minutes ? .white : .primary)
-                                            .frame(maxWidth: .infinity)
-                                            .padding(.vertical, 10)
-                                            .background(
-                                                Capsule().fill(duration == minutes ? Color.indigo : Color.secondary.opacity(0.12))
-                                            )
+                                Picker("Duration", selection: $duration) {
+                                    ForEach(durationChoices, id: \.self) { minutes in
+                                        Text(durationLabel(minutes)).tag(minutes)
                                     }
                                 }
+                                .pickerStyle(.wheel)
+                                .frame(height: 118)
+                                .clipped()
+
+                                Button("Custom duration") {
+                                    customDurationText = String(duration)
+                                    showingCustomDuration = true
+                                }
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
                         }
                         .padding(16)
                         .background(RoundedRectangle(cornerRadius: 16).fill(Color(uiColor: .secondarySystemGroupedBackground)))
 
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label("Notification", systemImage: "bell")
+                        VStack(alignment: .leading, spacing: 12) {
+                            Label("Task preferences", systemImage: "slider.horizontal.3")
                                 .font(.headline)
-                            NotificationPreferencePicker(
-                                preference: $notificationPreference,
-                                inheritedPreference: categoryId.flatMap { id in viewModel.categories.first { $0.id == id }?.notificationPreference },
-                                allowsInheritedDefault: true
-                            )
+
+                            HStack {
+                                Label("Category", systemImage: "tag")
+                                Spacer()
+                                Picker("Category", selection: $categoryId) {
+                                    Text("No category").tag(UUID?.none)
+                                    ForEach(viewModel.categories) { category in
+                                        Text("\(category.icon ?? "🔖") \(category.name)").tag(Optional(category.id))
+                                    }
+                                    Divider()
+                                    Text("Add new category…").tag(Optional(Self.newCategoryOptionID))
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                            }
+                            .onChange(of: categoryId) { newValue in
+                                guard newValue == Self.newCategoryOptionID else { return }
+                                categoryId = nil
+                                showingAddCategory = true
+                            }
+
+                            Divider()
+
+                            HStack {
+                                Label("Notification", systemImage: "bell")
+                                Spacer()
+                                NotificationPreferencePicker(
+                                    preference: $notificationPreference,
+                                    inheritedPreference: categoryId.flatMap { id in viewModel.categories.first { $0.id == id }?.notificationPreference },
+                                    allowsInheritedDefault: true
+                                )
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                            }
                         }
                         .padding(16)
                         .background(RoundedRectangle(cornerRadius: 16).fill(Color(uiColor: .secondarySystemGroupedBackground)))
                     }
-
-                    VStack(alignment: .leading, spacing: 10) {
-                        Label("Category", systemImage: "tag")
-                            .font(.headline)
-                        Picker("Category", selection: $categoryId) {
-                            Text("No category").tag(UUID?.none)
-                            ForEach(viewModel.categories) { category in
-                                Text("\(category.icon ?? "🔖") \(category.name)").tag(Optional(category.id))
-                            }
-                            Divider()
-                            Text("Add new category…").tag(Optional(Self.newCategoryOptionID))
-                        }
-                        .onChange(of: categoryId) { newValue in
-                            guard newValue == Self.newCategoryOptionID else { return }
-                            categoryId = nil
-                            showingAddCategory = true
-                        }
-                        .pickerStyle(.menu)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.primary.opacity(0.06)))
-                    }
-                    .padding(16)
-                    .background(RoundedRectangle(cornerRadius: 16).fill(Color(uiColor: .secondarySystemGroupedBackground)))
-
                 }
                 .padding(20)
             }
@@ -737,12 +756,45 @@ struct TaskComposerView: View {
             }
             .presentationDetents([.medium])
         }
+        .sheet(isPresented: $showingCustomDuration) {
+            NavigationStack {
+                Form {
+                    Section("Minutes") {
+                        TextField("Minutes", text: $customDurationText)
+                            .keyboardType(.numberPad)
+                    }
+                    Text("Choose any duration from 1 minute to 24 hours.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .navigationTitle("Custom duration")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { showingCustomDuration = false }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Set") {
+                            duration = min(24 * 60, max(1, Int(customDurationText) ?? duration))
+                            showingCustomDuration = false
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.fraction(0.3)])
+        }
     }
 
     private static let newCategoryOptionID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
     private func durationLabel(_ minutes: Int) -> String {
-        minutes < 60 ? "\(minutes)m" : "\(minutes / 60)h"
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(hours) hr" : "\(hours) hr \(remainder) min"
+    }
+
+    private var durationChoices: [Int] {
+        [5, 15, 30] + Array(stride(from: 60, through: 24 * 60, by: 30))
     }
 
     private func add() {
@@ -792,6 +844,14 @@ struct CalendarCardView: View {
         .system(size: isCompact ? 8 : 10, weight: .bold)
     }
 
+    private var durationText: String {
+        let minutes = max(1, Int(ceil(todo.plannedDuration / 60)))
+        if minutes < 60 { return "\(minutes)m" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        return remainder == 0 ? "\(hours)h" : "\(hours)h \(remainder)m"
+    }
+
     var body: some View {
         let colWidth = containerWidth / CGFloat(layout.totalCols)
         let leftOffset = CGFloat(layout.colIndex) * colWidth
@@ -808,15 +868,19 @@ struct CalendarCardView: View {
                             Text(icon).font(.system(size: 10))
                         }
 
-                        Text(todo.title)
+                        Text(showsTime ? todo.title : "\(todo.title) · \(durationText)")
                             .font(taskFont)
                             .foregroundStyle(.white)
                             .lineLimit(showsTime ? 1 : 2)
                             .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
 
                     if showsTime {
-                        Text(isTimerActive ? viewModel.timerFormatted : (todo.plannedStartTime ?? ""))
+                        Text(isTimerActive
+                            ? "\(viewModel.timerFormatted) · \(durationText)"
+                            : "\(todo.plannedStartTime ?? "") · \(durationText)"
+                        )
                             .font(.system(size: 9, weight: .medium))
                             .foregroundStyle(.white.opacity(0.86))
                             .lineLimit(1)
@@ -831,6 +895,7 @@ struct CalendarCardView: View {
             }
         }
         .padding(.vertical, verticalPadding)
+        .padding(.leading, 8)
         .padding(.trailing, 6)
         // Apply the exact timeline size before drawing and clipping. Clipping
         // earlier used the text's intrinsic size, which let long titles escape
