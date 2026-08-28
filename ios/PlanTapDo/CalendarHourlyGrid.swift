@@ -710,6 +710,9 @@ struct CalendarCardView: View {
         let leftOffset = CGFloat(layout.colIndex) * colWidth
         let currentDragOffset = (draggingTodoId == todo.id) ? dragYTranslation : 0
         let showsCardText = !isCompact && colWidth >= 88
+        let showsTime = showsCardText && metrics.height >= 44
+        let showsControls = showsCardText && colWidth >= 190 && metrics.height >= 44
+        let verticalPadding: CGFloat = metrics.height < 36 ? 2 : 6
 
         HStack(alignment: .top, spacing: 5) {
             if showsCardText {
@@ -723,12 +726,18 @@ struct CalendarCardView: View {
                             Text(todo.title)
                                 .font(taskFont)
                                 .foregroundStyle(.white)
-                                .lineLimit(2)
+                                .lineLimit(showsTime ? 1 : 2)
+                                .truncationMode(.tail)
                         }
 
-                        Text(isTimerActive ? viewModel.timerFormatted : (todo.plannedStartTime ?? ""))
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.white.opacity(0.86))
+                        if showsTime {
+                            Text(isTimerActive ? viewModel.timerFormatted : (todo.plannedStartTime ?? ""))
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.86))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -743,7 +752,7 @@ struct CalendarCardView: View {
 
             Spacer(minLength: 0)
 
-            if todo.status != .completed && showsCardText && colWidth >= 100 {
+            if todo.status != .completed && showsControls {
                 Button {
                     if isTimerActive {
                         viewModel.stopTimer()
@@ -774,7 +783,7 @@ struct CalendarCardView: View {
                 .accessibilityLabel("Finish \(todo.title)")
             }
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, verticalPadding)
         .padding(.trailing, 6)
         .background(
             RoundedRectangle(cornerRadius: 8)
