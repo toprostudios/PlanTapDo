@@ -798,23 +798,37 @@ struct CalendarCardView: View {
         tapResetWorkItem?.cancel()
         consecutiveTapCount += 1
 
-        if consecutiveTapCount == 3 {
+        if consecutiveTapCount >= 3 {
             consecutiveTapCount = 0
-            AppHaptics.impact(.medium)
-            onOpen()
+            AppHaptics.success()
+            viewModel.toggleComplete(todo)
             return
         }
 
-        if isTimerActive {
-            AppHaptics.impact(.medium)
-            viewModel.stopTimer()
-        } else if viewModel.canStartAnotherTask {
-            AppHaptics.impact(.medium)
-            viewModel.startTimer(for: todo)
-        }
+        // Defer a one- or two-tap action just long enough to recognize a
+        // higher-count gesture. This avoids starting a task before a double
+        // tap opens it, or starting/stopping it before a triple tap completes it.
+        let reset = DispatchWorkItem {
+            let tapCount = consecutiveTapCount
+            consecutiveTapCount = 0
 
-        let reset = DispatchWorkItem { consecutiveTapCount = 0 }
+            switch tapCount {
+            case 1:
+                if isTimerActive {
+                    AppHaptics.impact(.medium)
+                    viewModel.stopTimer()
+                } else if viewModel.canStartAnotherTask {
+                    AppHaptics.impact(.medium)
+                    viewModel.startTimer(for: todo)
+                }
+            case 2:
+                AppHaptics.impact(.medium)
+                onOpen()
+            default:
+                break
+            }
+        }
         tapResetWorkItem = reset
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: reset)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.32, execute: reset)
     }
 }
