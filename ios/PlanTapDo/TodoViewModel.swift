@@ -140,52 +140,11 @@ class TodoViewModel: ObservableObject {
     }
 
     private func handoffRunningTask(at end: Date) {
-        guard let activeID = activeTimerTodoId,
-              let index = todos.firstIndex(where: { $0.id == activeID }) else {
-            clearTimerState()
-            return
-        }
-
-        let original = todos[index]
-        let elapsed: TimeInterval
-        if let session = original.timeSessions?.first(where: { $0.id == activeTimerSessionId }) {
-            elapsed = max(60, end.timeIntervalSince(session.start))
-        } else {
-            elapsed = max(60, TimeInterval(timerSecondsElapsed))
-        }
-        let remaining = max(0, original.plannedDuration - elapsed)
-
-        stopTimer()
-        guard let stoppedIndex = todos.firstIndex(where: { $0.id == activeID }) else { return }
-        // Preserve the completed recorded segment as this task's one card.
-        todos[stoppedIndex].plannedDuration = elapsed
-
-        // The unfinished portion remains a task and enters directly after the
-        // newly started task when the live schedule is reflowed.
-        guard remaining >= 60 else { return }
-        let continuation = TodoEntry(
-            id: UUID(),
-            title: original.title,
-            description: original.description,
-            doDate: Calendar.current.startOfDay(for: end),
-            dueDate: original.dueDate,
-            dueTime: original.dueTime,
-            descriptiveDeadline: original.descriptiveDeadline,
-            plannedStartTime: Self.timeString(from: Self.minutes(from: end)),
-            plannedDuration: remaining,
-            categoryId: original.categoryId,
-            status: .pending,
-            priority: original.priority,
-            location: original.location,
-            reminder: original.reminder,
-            notificationPreference: original.notificationPreference,
-            labels: original.labels,
-            timeSessions: nil,
-            subtasks: original.subtasks,
-            assigneeId: original.assigneeId,
-            recurrenceFrequency: .none
-        )
-        todos.append(continuation)
+        // stopTimer preserves the elapsed work as a historical card and creates
+        // a pending continuation for any remaining planned time. Starting the
+        // next task then lets the normal live scheduler place that continuation
+        // and every later task after the newly active card.
+        stopTimer(at: end)
     }
 
     private func startTimerTicker() {
@@ -212,26 +171,53 @@ class TodoViewModel: ObservableObject {
         return max(planned, date.timeIntervalSince(session.start))
     }
 
-    func stopTimer() {
-        let stoppedTitle = activeTimerTodoId.flatMap { activeId in
-            todos.first(where: { $0.id == activeId })?.title
+    @discardableResult
+    func stopTimer(at end: Date = Date()) -> UUID? {
+        guard let activeId = activeTimerTodoId,
+              let idx = todos.firstIndex(where: { $0.id == activeId }) else {
+            clearTimerState()
+            clearStartUndo()
+            return nil
         }
-        if let activeId = activeTimerTodoId, let idx = todos.firstIndex(where: { $0.id == activeId }) {
+
+        let original = todos[idx]
+        var elapsed = max(60, TimeInterval(timerSecondsElapsed))
+        if let sessionId = activeTimerSessionId,
+           var sessions = todos[idx].timeSessions,
+           let sessionIndex = sessions.firstIndex(where: { $0.id == sessionId }) {
+            elapsed = max(60, end.timeIntervalSince(sessions[sessionIndex].start))
             todos[idx].status = .inProgress
-            if let sessionId = activeTimerSessionId,
-               var sessions = todos[idx].timeSessions,
-               let sessionIndex = sessions.firstIndex(where: { $0.id == sessionId }) {
-                let end = Date()
-                sessions[sessionIndex].end = end
-                sessions[sessionIndex].duration = end.timeIntervalSince(sessions[sessionIndex].start)
-                todos[idx].timeSessions = sessions
-            }
+            sessions[sessionIndex].end = end
+            sessions[sessionIndex].duration = end.timeIntervalSince(sessions[sessionIndex].start)
+            todos[idx].timeSessions = sessions
+        }
+
+        // The elapsed portion is an immutable calendar record. Any unfinished
+        // planned work becomes its own normal-colored pending card at Stop.
+        todos[idx].plannedDuration = elapsed
+        let remaining = max(0, original.plannedDuration - elapsed)
+        let continuationID: UUID?
+        if remaining >= 60 {
+            let continuation = TodoEntry(
+                id: UUID(), title: original.title, description: original.description,
+                doDate: Calendar.current.startOfDay(for: end), dueDate: original.dueDate,
+                dueTime: original.dueTime, descriptiveDeadline: original.descriptiveDeadline,
+                plannedStartTime: Self.timeString(from: Self.minutes(from: end)),
+                plannedDuration: remaining, categoryId: original.categoryId, status: .pending,
+                priority: original.priority, location: original.location, reminder: original.reminder,
+                notificationPreference: original.notificationPreference, labels: original.labels,
+                timeSessions: nil, subtasks: original.subtasks, assigneeId: original.assigneeId,
+                recurrenceFrequency: .none
+            )
+            todos.append(continuation)
+            continuationID = continuation.id
+        } else {
+            continuationID = nil
         }
         clearTimerState()
         clearStartUndo()
-        if let stoppedTitle {
-            showStopFeedback(for: stoppedTitle)
-        }
+        showStopFeedback(for: original.title)
+        return continuationID
     }
 
     func undoLastStart() {
@@ -1163,6 +1149,31 @@ class TodoViewModel: ObservableObject {
                 ensureFutureOccurrence(after: todos[idx])
             }
         }
+    }
+
+    /// Calendar completion removes work that has not started. If a task has
+    /// recorded time, it is kept as a completed historical calendar block.
+    func completeFromCalendar(_ todo: TodoEntry) {
+        var continuationID: UUID?
+        if activeTimerTodoId == todo.id {
+            continuationID = stopTimer()
+        }
+
+        if let continuationID {
+            deleteTodo(id: continuationID)
+        }
+
+        guard let index = todos.firstIndex(where: { $0.id == todo.id }) else { return }
+        let hasRecordedWork = (todos[index].timeSessions ?? []).contains {
+            $0.end != nil && ($0.duration ?? 0) > 0
+        }
+        guard hasRecordedWork else {
+            deleteTodo(id: todo.id)
+            return
+        }
+        todos[index].status = .completed
+        todos[index].completedAt = Date()
+        ensureFutureOccurrence(after: todos[index])
     }
 
     func deleteTodo(id: UUID) {

@@ -134,9 +134,12 @@ struct CalendarHourlyGrid: View {
     private func dayTodos(for targetDate: Date) -> [TodoEntry] {
         let calendar = Calendar.current
         return viewModel.todos.filter {
+            let hasRecordedWork = ($0.timeSessions ?? []).contains {
+                $0.end != nil && ($0.duration ?? 0) > 0
+            }
             calendar.isDate($0.doDate, inSameDayAs: targetDate)
                 && $0.plannedStartTime?.isEmpty == false
-                && $0.status != .completed
+                && ($0.status != .completed || hasRecordedWork)
                 && $0.status != .archived
                 && $0.status != .skipped
         }
@@ -801,7 +804,7 @@ struct CalendarCardView: View {
         if consecutiveTapCount >= 3 {
             consecutiveTapCount = 0
             AppHaptics.success()
-            viewModel.toggleComplete(todo)
+            viewModel.completeFromCalendar(todo)
             return
         }
 
