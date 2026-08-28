@@ -628,16 +628,6 @@ struct TaskComposerView: View {
                     .padding(16)
                     .background(RoundedRectangle(cornerRadius: 16).fill(Color(uiColor: .secondarySystemGroupedBackground)))
 
-                    Button(action: add) {
-                        Label("Add task", systemImage: "plus")
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
-                            .background(Capsule().fill(Color.indigo))
-                    }
-                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .opacity(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.45 : 1)
                 }
                 .padding(20)
             }
@@ -647,6 +637,18 @@ struct TaskComposerView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(action: add) {
+                        Image(systemName: "plus")
+                            .font(.headline.weight(.bold))
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(Color.indigo))
+                            .foregroundStyle(.white)
+                    }
+                    .tactilePress()
+                    .accessibilityLabel("Add task")
+                    .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
         }
@@ -665,6 +667,7 @@ struct TaskComposerView: View {
     }
 
     private func add() {
+        AppHaptics.success()
         viewModel.createTodo(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             description: notes.isEmpty ? nil : notes,
