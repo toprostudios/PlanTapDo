@@ -1295,7 +1295,12 @@ class TodoViewModel: ObservableObject {
 
         let movableIDs = Set(scheduledIndices.map { todos[$0].id })
         var cursorDate = today
-        var cursorMinute = roundedCurrentMinutes
+        // A running card is anchored to when Start was pressed. Its growing live
+        // duration pushes later pending work; the scheduler must never push the
+        // running card itself ahead of the current-time line.
+        var cursorMinute = activeTimerTodoId.flatMap { activeID in
+            todos.first(where: { $0.id == activeID })?.plannedStartTime.map(Self.minutes(from:))
+        } ?? roundedCurrentMinutes
 
         for index in scheduledIndices {
             guard let time = todos[index].plannedStartTime else { continue }
@@ -1303,15 +1308,22 @@ class TodoViewModel: ObservableObject {
                 15 * 60,
                 max(5, Int(ceil(calendarDuration(for: todos[index], at: currentDate) / 60)))
             )
-            let earliestMinute = calendar.isDate(cursorDate, inSameDayAs: today)
-                ? max(Self.minutes(from: time), cursorMinute)
-                : cursorMinute
-            let slot = nextOpenSlot(
-                for: todos[index],
-                onOrAfter: cursorDate,
-                from: earliestMinute,
-                ignoring: movableIDs
-            )
+            let slot: (date: Date, minute: Int)
+            if todos[index].id == activeTimerTodoId {
+                // Manual starts are allowed at the exact present time, including
+                // during Off Time. Off Time only constrains pending tasks.
+                slot = (today, Self.minutes(from: time))
+            } else {
+                let earliestMinute = calendar.isDate(cursorDate, inSameDayAs: today)
+                    ? max(Self.minutes(from: time), cursorMinute)
+                    : cursorMinute
+                slot = nextOpenSlot(
+                    for: todos[index],
+                    onOrAfter: cursorDate,
+                    from: earliestMinute,
+                    ignoring: movableIDs
+                )
+            }
             let newTime = Self.timeString(from: slot.minute)
             if !calendar.isDate(todos[index].doDate, inSameDayAs: slot.date)
                 || todos[index].plannedStartTime != newTime {
