@@ -76,6 +76,7 @@ struct TodayView: View {
                         .background(Circle().fill(Color.indigo))
                         .shadow(color: .black.opacity(0.22), radius: 8, y: 4)
                 }
+                .tactilePress()
                 .accessibilityLabel("Add task for now")
                 .padding(.trailing, 22)
                 .padding(.bottom, 18)
@@ -91,6 +92,7 @@ struct TodayView: View {
         .pickerStyle(.segmented)
         .padding(.horizontal)
         .padding(.top, 4)
+        .onChange(of: viewModel.displayStyle) { _ in AppHaptics.selection() }
     }
 
     private var pageHeader: some View {
@@ -110,7 +112,6 @@ struct TaskListRowView: View {
     var overdueLabel: String? = nil
     let onOpen: () -> Void
     var usesOuterPadding: Bool = true
-    @State private var showingDeleteConfirmation = false
 
     private var categoryColor: Color {
         Color(hex: category?.colorHex ?? "7C6FF7")
@@ -123,11 +124,14 @@ struct TaskListRowView: View {
     var body: some View {
         HStack(spacing: 9) {
             Button {
+                AppHaptics.success()
                 viewModel.toggleComplete(todo)
             } label: {
                 Image(systemName: todo.status == .completed ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(todo.status == .completed ? .green : .secondary)
+                    .font(.subheadline.weight(.black))
+                    .foregroundStyle(todo.status == .completed ? .white : categoryColor)
+                    .frame(width: 30, height: 30)
+                    .background(Circle().fill(todo.status == .completed ? Color.green : categoryColor.opacity(0.12)))
             }
             .buttonStyle(.plain)
 
@@ -147,8 +151,8 @@ struct TaskListRowView: View {
                     }
 
                     if let plannedStartTime = todo.plannedStartTime, !plannedStartTime.isEmpty {
-                        Text("\(plannedStartTime) · \(Int(todo.plannedDuration / 60)) min")
-                            .font(.caption2)
+                        Label("\(plannedStartTime) · \(Int(todo.plannedDuration / 60)) min", systemImage: "clock")
+                            .font(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
 
@@ -166,6 +170,7 @@ struct TaskListRowView: View {
 
             if todo.status != .completed {
                 Button {
+                    AppHaptics.impact(.medium)
                     if isTimerActive {
                         viewModel.stopTimer()
                     } else {
@@ -179,32 +184,22 @@ struct TaskListRowView: View {
                     .background(Circle().fill(isTimerActive ? Color.red : Color.indigo))
                 }
                 .buttonStyle(.plain)
+                .tactilePress()
                 .accessibilityLabel(isTimerActive ? "Stop \(todo.title)" : "Start \(todo.title)")
                 .disabled(!isTimerActive && !viewModel.canStartAnotherTask)
             }
-
-            Button {
-                showingDeleteConfirmation = true
-            } label: {
-                Image(systemName: "trash")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.red)
-                    .frame(width: 34, height: 34)
-                    .background(Circle().fill(Color.red.opacity(0.12)))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Delete \(todo.title)")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 9)
-        .background(RoundedRectangle(cornerRadius: 14).fill(Color.gray.opacity(0.15)))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 11)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial))
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(categoryColor)
                 .frame(width: 4)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 14))
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: .black.opacity(0.045), radius: 8, y: 3)
         .padding(.horizontal, usesOuterPadding ? 16 : 0)
         .contextMenu {
             Button(action: onOpen) {
@@ -222,16 +217,6 @@ struct TaskListRowView: View {
             } label: {
                 Label("Delete Task", systemImage: "trash")
             }
-        }
-        .confirmationDialog(
-            "Delete \"\(todo.title)\"?",
-            isPresented: $showingDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Delete Task", role: .destructive) {
-                viewModel.deleteTodo(id: todo.id)
-            }
-            Button("Cancel", role: .cancel) {}
         }
     }
 }

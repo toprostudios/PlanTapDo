@@ -97,6 +97,7 @@ struct FutureView: View {
     private var weekNavigator: some View {
         HStack(spacing: 6) {
             Button {
+                AppHaptics.selection()
                 viewModel.currentWeekOffset -= 1
                 if let newDate = Calendar.current.date(byAdding: .day, value: -7, to: viewModel.selectedFutureDate) {
                     viewModel.selectedFutureDate = newDate
@@ -113,6 +114,7 @@ struct FutureView: View {
                 ForEach(weekDays, id: \.self) { day in
                     let isSelected = Calendar.current.isDate(day, inSameDayAs: viewModel.selectedFutureDate)
                     Button {
+                        AppHaptics.selection()
                         viewModel.selectedFutureDate = day
                     } label: {
                         VStack(spacing: 2) {
@@ -135,6 +137,7 @@ struct FutureView: View {
             .frame(maxWidth: .infinity)
 
             Button {
+                AppHaptics.selection()
                 viewModel.currentWeekOffset += 1
                 if let newDate = Calendar.current.date(byAdding: .day, value: 7, to: viewModel.selectedFutureDate) {
                     viewModel.selectedFutureDate = newDate

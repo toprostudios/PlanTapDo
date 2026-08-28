@@ -41,6 +41,9 @@ struct ContentView: View {
             .accentColor(.indigo)
             .preferredColorScheme(viewModel.theme.preferredColorScheme)
             .dismissKeyboardWhenBackgroundTapped()
+            .onChange(of: viewModel.selectedTab) { _ in
+                AppHaptics.selection()
+            }
             .onAppear {
                 viewModel.pushOverdueTasks()
             }

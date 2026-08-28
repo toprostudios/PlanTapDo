@@ -37,6 +37,7 @@ struct CategoriesView: View {
                     Spacer()
 
                     Button {
+                        AppHaptics.impact(.medium)
                         if viewModel.canAddCategory(isPremium: subscriptionManager.hasPremium) {
                             showingAddCategory = true
                         } else {
@@ -105,6 +106,8 @@ struct CategoriesView: View {
                     .padding(.horizontal)
                 }
                 .buttonStyle(.plain)
+                .tactilePress()
+                .simultaneousGesture(TapGesture().onEnded { AppHaptics.selection() })
 
                 if showsAllTasks {
                     if visibleTasks.isEmpty {

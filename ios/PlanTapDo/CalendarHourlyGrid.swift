@@ -549,22 +549,17 @@ struct TaskComposerView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    VStack(spacing: 0) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label("What needs doing?", systemImage: "checkmark.circle")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.secondary)
                         TextField("Task name", text: $title)
                             .font(.headline)
-                            .textFieldStyle(.plain)
-                            .padding(16)
-                        Divider()
-                        TextField("Add notes (optional)", text: $notes, axis: .vertical)
+                            .modernTextInput()
+                        TextField("Notes (optional)", text: $notes, axis: .vertical)
                             .lineLimit(2...5)
-                            .textFieldStyle(.plain)
-                            .padding(16)
+                            .modernTextInput()
                     }
-                    .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-                    )
 
                     if showsSchedule {
                         VStack(alignment: .leading, spacing: 14) {
@@ -797,13 +792,16 @@ struct CalendarCardView: View {
 
         if consecutiveTapCount == 3 {
             consecutiveTapCount = 0
+            AppHaptics.impact(.medium)
             onOpen()
             return
         }
 
         if isTimerActive {
+            AppHaptics.impact(.medium)
             viewModel.stopTimer()
         } else if viewModel.canStartAnotherTask {
+            AppHaptics.impact(.medium)
             viewModel.startTimer(for: todo)
         }
 
