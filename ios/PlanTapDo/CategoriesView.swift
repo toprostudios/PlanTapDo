@@ -425,7 +425,8 @@ private struct EditCategoryView: View {
     @State private var colorHex: String
     @State private var notificationPreference: NotificationPreference?
 
-    private let swatches = ["7C6FF7", "3ECF8E", "F5A623", "60A5FA", "EC4899", "F43F5E", "EAB308", "14B8A6"]
+    // Green is reserved for tasks with a running timer.
+    private let swatches = ["7C6FF7", "F5A623", "60A5FA", "EC4899", "F43F5E", "EAB308", "14B8A6"]
 
     init(viewModel: TodoViewModel, category: Category) {
         self.viewModel = viewModel
@@ -528,7 +529,8 @@ struct AddCategoryView: View {
     @State private var colorHex = "7C6FF7"
     @State private var showingPremiumLimit = false
 
-    private let swatches = ["7C6FF7", "3ECF8E", "F5A623", "60A5FA", "EC4899", "F43F5E", "EAB308", "14B8A6"]
+    // Green is reserved for tasks with a running timer.
+    private let swatches = ["7C6FF7", "F5A623", "60A5FA", "EC4899", "F43F5E", "EAB308", "14B8A6"]
 
     var body: some View {
         NavigationStack {

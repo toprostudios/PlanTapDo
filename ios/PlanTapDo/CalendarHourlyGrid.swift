@@ -701,7 +701,8 @@ struct CalendarCardView: View {
     @State private var tapResetWorkItem: DispatchWorkItem?
 
     private var catColor: Color {
-        Color(hex: cat?.colorHex ?? "7C6FF7")
+        // Green is reserved for a task that is actively being worked on.
+        isTimerActive ? .green : Color(hex: cat?.colorHex ?? "7C6FF7")
     }
 
     private var isTimerActive: Bool {

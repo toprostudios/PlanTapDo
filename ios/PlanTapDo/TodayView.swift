@@ -117,6 +117,10 @@ struct TaskListRowView: View {
         Color(hex: category?.colorHex ?? "7C6FF7")
     }
 
+    private var taskColor: Color {
+        isTimerActive ? .green : categoryColor
+    }
+
     private var isTimerActive: Bool {
         viewModel.activeTimerTodoId == todo.id
     }
@@ -129,9 +133,9 @@ struct TaskListRowView: View {
             } label: {
                 Image(systemName: todo.status == .completed ? "checkmark.circle.fill" : "circle")
                     .font(.subheadline.weight(.black))
-                    .foregroundStyle(todo.status == .completed ? .white : categoryColor)
+                    .foregroundStyle(todo.status == .completed ? .white : taskColor)
                     .frame(width: 30, height: 30)
-                    .background(Circle().fill(todo.status == .completed ? Color.green : categoryColor.opacity(0.12)))
+                    .background(Circle().fill(todo.status == .completed ? Color.green : taskColor.opacity(0.12)))
             }
             .buttonStyle(.plain)
 
@@ -195,7 +199,7 @@ struct TaskListRowView: View {
         .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial))
         .overlay(alignment: .leading) {
             Rectangle()
-                .fill(categoryColor)
+                .fill(taskColor)
                 .frame(width: 4)
         }
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
