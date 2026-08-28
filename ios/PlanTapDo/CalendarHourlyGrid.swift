@@ -75,6 +75,7 @@ struct CalendarHourlyGrid: View {
     let date: Date
     var onOpenTask: (TodoEntry) -> Void = { _ in }
     var showsTodayBadge = true
+    var allowsRangeSelection = true
     @State private var showingCalendarAdd = false
     @State private var draftStart = Date()
 
@@ -103,6 +104,8 @@ struct CalendarHourlyGrid: View {
     private var visibleDates: [Date] {
         let calendar = Calendar.current
         let baseDate = calendar.startOfDay(for: date)
+
+        guard allowsRangeSelection else { return [baseDate] }
 
         switch calendarSpan {
         case 3:
@@ -221,15 +224,17 @@ struct CalendarHourlyGrid: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
 
-                Picker("Calendar range", selection: $calendarSpan) {
-                    Text("1 day").tag(1)
-                    Text("3 days").tag(3)
-                    Text("Week").tag(7)
+                if allowsRangeSelection {
+                    Picker("Calendar range", selection: $calendarSpan) {
+                        Text("1 day").tag(1)
+                        Text("3 days").tag(3)
+                        Text("Week").tag(7)
+                    }
+                    .pickerStyle(.segmented)
+                    .controlSize(.small)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 6)
                 }
-                .pickerStyle(.segmented)
-                .controlSize(.small)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 6)
 
                 ScrollView(.vertical, showsIndicators: true) {
                     HStack(alignment: .top, spacing: 0) {
@@ -463,7 +468,9 @@ struct CalendarHourlyGrid: View {
         // leaving a second "actual work" block beneath the task.
         let _ = viewModel.timerSecondsElapsed
         let plannedDurationPx = CGFloat(viewModel.calendarDuration(for: todo, at: Date()) / 60.0) * pointsPerMinute
-        let heightPx = max(20 * effectiveCalendarScale, plannedDurationPx)
+        // One minute in a task equals one minute on the hour rail. There is no
+        // card-height floor: 30 minutes is half the height of one hour.
+        let heightPx = max(1, plannedDurationPx)
         let plannedMinutes = Int(viewModel.calendarDuration(for: todo, at: Date()) / 60.0)
         return (plannedStartPx, heightPx, false, plannedMinutes)
     }
@@ -692,6 +699,8 @@ struct CalendarCardView: View {
     let onDragEnded: (CGFloat) -> Void
     let onDragCancelled: () -> Void
     @GestureState private var isDragActive = false
+    @State private var consecutiveTapCount = 0
+    @State private var tapResetWorkItem: DispatchWorkItem?
 
     private var catColor: Color {
         Color(hex: cat?.colorHex ?? "7C6FF7")
@@ -711,76 +720,36 @@ struct CalendarCardView: View {
         let currentDragOffset = (draggingTodoId == todo.id) ? dragYTranslation : 0
         let showsCardText = !isCompact && colWidth >= 88
         let showsTime = showsCardText && metrics.height >= 44
-        let showsControls = showsCardText && colWidth >= 190 && metrics.height >= 44
         let verticalPadding: CGFloat = metrics.height < 36 ? 2 : 6
 
         HStack(alignment: .top, spacing: 5) {
             if showsCardText {
-                Button(action: onOpen) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 3) {
-                            if let icon = cat?.icon {
-                                Text(icon).font(.system(size: 10))
-                            }
-
-                            Text(todo.title)
-                                .font(taskFont)
-                                .foregroundStyle(.white)
-                                .lineLimit(showsTime ? 1 : 2)
-                                .truncationMode(.tail)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 3) {
+                        if let icon = cat?.icon {
+                            Text(icon).font(.system(size: 10))
                         }
 
-                        if showsTime {
-                            Text(isTimerActive ? viewModel.timerFormatted : (todo.plannedStartTime ?? ""))
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.86))
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                        Text(todo.title)
+                            .font(taskFont)
+                            .foregroundStyle(.white)
+                            .lineLimit(showsTime ? 1 : 2)
+                            .truncationMode(.tail)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if showsTime {
+                        Text(isTimerActive ? viewModel.timerFormatted : (todo.plannedStartTime ?? ""))
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.86))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Button(action: onOpen) {
-                    Color.clear
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .buttonStyle(.plain)
-            }
-
-            Spacer(minLength: 0)
-
-            if todo.status != .completed && showsControls {
-                Button {
-                    if isTimerActive {
-                        viewModel.stopTimer()
-                    } else {
-                        viewModel.startTimer(for: todo)
-                    }
-                } label: {
-                    Image(systemName: isTimerActive ? "stop.fill" : "play.fill")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(Circle().fill(isTimerActive ? Color.red : Color.indigo))
-                }
-                .buttonStyle(.plain)
-                .disabled(!isTimerActive && !viewModel.canStartAnotherTask)
-
-                Button {
-                    viewModel.finishTodo(id: todo.id)
-                } label: {
-                    Text("Finish")
-                        .font(.system(size: 9, weight: .black))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .frame(height: 28)
-                        .background(Capsule().fill(Color.green))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Finish \(todo.title)")
+                Color.clear
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .padding(.vertical, verticalPadding)
@@ -799,6 +768,7 @@ struct CalendarCardView: View {
         .frame(width: max(45, colWidth - 4), height: metrics.height, alignment: .topLeading)
         .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
         .animation(.linear(duration: 0.2), value: metrics.top)
+        .onTapGesture { handleTaskTap() }
         .gesture(
             DragGesture()
                 .updating($isDragActive) { _, state, _ in
@@ -819,5 +789,26 @@ struct CalendarCardView: View {
                 onDragCancelled()
             }
         }
+    }
+
+    private func handleTaskTap() {
+        tapResetWorkItem?.cancel()
+        consecutiveTapCount += 1
+
+        if consecutiveTapCount == 3 {
+            consecutiveTapCount = 0
+            onOpen()
+            return
+        }
+
+        if isTimerActive {
+            viewModel.stopTimer()
+        } else if viewModel.canStartAnotherTask {
+            viewModel.startTimer(for: todo)
+        }
+
+        let reset = DispatchWorkItem { consecutiveTapCount = 0 }
+        tapResetWorkItem = reset
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: reset)
     }
 }

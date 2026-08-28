@@ -33,7 +33,7 @@ struct SettingsView: View {
             switch selectedSection {
             case .general: generalSettings
             case .offTime: OffTimeSettingsView(viewModel: viewModel)
-            case .reports: WeeklyReportsView(viewModel: viewModel)
+            case .reports: ReportsView(viewModel: viewModel)
             }
         }
         .background(Color(uiColor: .systemGroupedBackground))
@@ -41,14 +41,6 @@ struct SettingsView: View {
 
     private var generalSettings: some View {
         Form {
-            Section("📱 Local data") {
-                Label("Tasks stay on this device", systemImage: "iphone")
-                    .font(.subheadline.weight(.semibold))
-                Text("Version 1 does not require an account and does not sync task data to a server. Cloud sync is planned for a later release.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-
             Section("✅ Task Visibility") {
                 Toggle("Show completed tasks", isOn: $viewModel.showCompletedTasks)
             }
@@ -159,6 +151,64 @@ private struct OffTimeSettingsView: View {
         // The first release intentionally supports one global window only.
         // Category- and profile-specific off time belong on the post-v1 roadmap.
         viewModel.setOffTime(enabled: isEnabled, startMinutes: start, endMinutes: end)
+    }
+}
+
+private struct ReportsView: View {
+    @ObservedObject var viewModel: TodoViewModel
+    @State private var selectedReport = 0
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("Report period", selection: $selectedReport) {
+                Text("Daily").tag(0)
+                Text("Weekly").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .padding()
+
+            if selectedReport == 0 {
+                DailyReportsView(viewModel: viewModel)
+            } else {
+                WeeklyReportsView(viewModel: viewModel)
+            }
+        }
+    }
+}
+
+private struct DailyReportsView: View {
+    @ObservedObject var viewModel: TodoViewModel
+
+    private var todayTodos: [TodoEntry] {
+        viewModel.todos(on: Date())
+    }
+
+    private var trackedSeconds: TimeInterval {
+        let calendar = Calendar.current
+        return viewModel.todos.flatMap { $0.timeSessions ?? [] }
+            .filter { calendar.isDate($0.start, inSameDayAs: Date()) }
+            .reduce(0) { total, session in
+                total + (session.duration ?? session.end.map { $0.timeIntervalSince(session.start) } ?? 0)
+            }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("Daily report")
+                    .font(.title3.weight(.bold))
+                Text(Date().formatted(.dateTime.weekday(.wide).month(.wide).day()))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    ReportMetricCard(title: "Completed", value: "\(todayTodos.filter { $0.status == .completed }.count)/\(todayTodos.count)", icon: "checkmark.circle.fill", color: .green)
+                    ReportMetricCard(title: "Planned", value: String(format: "%.1fh", todayTodos.reduce(0) { $0 + $1.plannedDuration } / 3_600), icon: "calendar", color: .indigo)
+                    ReportMetricCard(title: "Tracked", value: String(format: "%.1fh", trackedSeconds / 3_600), icon: "timer", color: .orange)
+                }
+            }
+            .padding()
+        }
     }
 }
 

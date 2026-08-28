@@ -24,6 +24,9 @@ PlanTapDo turns a personal task list into a live daily schedule.
   following work forward.
 - Starting work moves that task to the current time. The one task card displays
   the stopwatch and grows when work exceeds its planned duration.
+- Calendar task cards use their actual scheduled height: 30 minutes is half an
+  hour block and 60 minutes is one full hour block. Tap once to start, tap
+  again to stop, and tap a third time within three seconds to open task details.
 - The Running Tasks setting controls handoff. When automatic handoff is on,
   starting a second task records the first segment and places its unfinished
   remainder after the new task. When it is off, the current task must stop
@@ -35,13 +38,13 @@ PlanTapDo turns a personal task list into a live daily schedule.
 
 ## Version 1 screens
 
-- **Today:** capture, schedule, start, stop, finish, and review today’s tasks.
+- **Today:** capture, schedule, start, stop, finish, and review today’s tasks
+  in a single-day calendar.
 - **Upcoming:** inspect and schedule a future day.
 - **Tasks:** categories at the top; an optional expandable all-task list below,
   with uncategorized tasks first and the remaining tasks in chronological order.
-- **Settings:** local-data notice, timer handoff preference, completed-task
-  visibility, dark/light theme, Off Time, weekly reports, privacy policy, and
-  support.
+- **Settings:** timer handoff preference, completed-task visibility, dark/light
+  theme, Off Time, daily and weekly reports, privacy policy, and support.
 
 ## Monetization
 

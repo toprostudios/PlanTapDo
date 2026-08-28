@@ -51,7 +51,8 @@ struct TodayView: View {
                     CalendarHourlyGrid(
                         viewModel: viewModel,
                         date: Date(),
-                        onOpenTask: { selectedTodo = $0 }
+                        onOpenTask: { selectedTodo = $0 },
+                        allowsRangeSelection: false
                     )
                 }
                 .padding(.top, 4)
