@@ -89,10 +89,9 @@ struct CalendarHourlyGrid: View {
 
     private let baseHourHeight: CGFloat = 60
 
-    private struct QuickWorkStack: Identifiable {
+    private struct CompletedWorkGroup: Identifiable {
         let todos: [TodoEntry]
         let startMinute: Int
-        let trackedMinutes: Int
 
         var id: String { todos.map(\.id.uuidString).joined(separator: "-") }
     }
@@ -158,45 +157,38 @@ struct CalendarHourlyGrid: View {
         (todo.timeSessions ?? []).contains { $0.end != nil && ($0.duration ?? 0) > 0 }
     }
 
-    /// Four or more brief tracked sessions in a five-minute cluster are shown
-    /// as one compact stack. Each session remains intact in storage and reports.
-    private func quickWorkStacks(in todos: [TodoEntry]) -> [QuickWorkStack] {
-        let shortHistory = todos
-            .filter { hasRecordedWork($0) && $0.plannedDuration <= 5 * 60 }
-            .sorted { Self.minutes(from: $0.plannedStartTime ?? "00:00") < Self.minutes(from: $1.plannedStartTime ?? "00:00") }
-
-        var clusters: [[TodoEntry]] = []
-        var lastEndMinute: Int?
-        for todo in shortHistory {
-            let start = Self.minutes(from: todo.plannedStartTime ?? "00:00")
-            let end = start + max(1, Int(ceil(todo.plannedDuration / 60)))
-            if let lastEndMinute, start <= lastEndMinute + 5, !clusters.isEmpty {
-                clusters[clusters.count - 1].append(todo)
-            } else {
-                clusters.append([todo])
-            }
-            lastEndMinute = max(lastEndMinute ?? end, end)
+    /// Completed work shares one readable card per quarter-hour. The underlying
+    /// tasks and exact durations remain separate for reports and task details.
+    private func completedWorkGroups(in todos: [TodoEntry]) -> [CompletedWorkGroup] {
+        let grouped = Dictionary(grouping: todos.filter {
+            $0.status == .completed && hasRecordedWork($0)
+        }) { todo in
+            Self.minutes(from: todo.plannedStartTime ?? "00:00") / 15
         }
 
-        return clusters.compactMap { cluster in
-            guard cluster.count >= 4, let first = cluster.first else { return nil }
-            return QuickWorkStack(
-                todos: cluster,
-                startMinute: Self.minutes(from: first.plannedStartTime ?? "00:00"),
-                trackedMinutes: cluster.reduce(0) { $0 + max(1, Int(ceil($1.plannedDuration / 60))) }
+        return grouped.values.compactMap { group in
+            guard group.count > 1 else { return nil }
+            let ordered = group.sorted {
+                Self.minutes(from: $0.plannedStartTime ?? "00:00") < Self.minutes(from: $1.plannedStartTime ?? "00:00")
+            }
+            guard let first = ordered.first else { return nil }
+            return CompletedWorkGroup(
+                todos: ordered,
+                startMinute: (Self.minutes(from: first.plannedStartTime ?? "00:00") / 15) * 15
             )
         }
+        .sorted { $0.startMinute < $1.startMinute }
     }
 
-    private struct QuickWorkStackView: View {
-        let stack: QuickWorkStack
+    private struct CompletedWorkGroupView: View {
+        let group: CompletedWorkGroup
         let pointsPerMinute: CGFloat
         let onOpen: () -> Void
 
         var body: some View {
             HStack(spacing: 5) {
-                Image(systemName: "square.stack.3d.up.fill")
-                Text("\(stack.todos.count) quick tasks · \(stack.trackedMinutes)m")
+                Image(systemName: "checkmark.circle.fill")
+                Text(group.todos.map(\.title).joined(separator: ", "))
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
@@ -204,16 +196,16 @@ struct CalendarHourlyGrid: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 20)
-            .background(RoundedRectangle(cornerRadius: 12).fill(Color.indigo.opacity(0.88)))
+            .frame(height: 15 * pointsPerMinute)
+            .background(RoundedRectangle(cornerRadius: 12).fill(Color.indigo.opacity(0.76)))
             .padding(.horizontal, 2)
             .contentShape(Rectangle())
-            .offset(y: CGFloat(stack.startMinute - 7 * 60) * pointsPerMinute)
+            .offset(y: CGFloat(group.startMinute - 7 * 60) * pointsPerMinute)
             .onTapGesture {
                 AppHaptics.selection()
                 onOpen()
             }
-            .accessibilityLabel("\(stack.todos.count) quick tasks, \(stack.trackedMinutes) minutes tracked")
+            .accessibilityLabel("Completed: \(group.todos.map(\.title).joined(separator: ", "))")
         }
     }
 
@@ -339,8 +331,8 @@ struct CalendarHourlyGrid: View {
                             ForEach(visibleDates, id: \.self) { colDate in
                                 let isCompactLayout = visibleDates.count > 3
                                 let todosForDay = dayTodos(for: colDate)
-                                let quickStacks = quickWorkStacks(in: todosForDay)
-                                let stackedTodoIDs = Set(quickStacks.flatMap { $0.todos.map(\.id) })
+                                let completedGroups = completedWorkGroups(in: todosForDay)
+                                let stackedTodoIDs = Set(completedGroups.flatMap { $0.todos.map(\.id) })
                                 let visibleTodos = todosForDay.filter { !stackedTodoIDs.contains($0.id) }
                                 let focusBlocksForDay = focusBlocks(for: colDate)
                                 let overlapMap = CalendarOverlapLayout.compute(for: visibleTodos)
@@ -482,11 +474,11 @@ struct CalendarHourlyGrid: View {
                                                 .zIndex(2)
                                             }
 
-                                            ForEach(quickStacks) { stack in
-                                                QuickWorkStackView(
-                                                    stack: stack,
+                                            ForEach(completedGroups) { group in
+                                                CompletedWorkGroupView(
+                                                    group: group,
                                                     pointsPerMinute: pointsPerMinute,
-                                                    onOpen: { onOpenTask(stack.todos[0]) }
+                                                    onOpen: { onOpenTask(group.todos[0]) }
                                                 )
                                                 .zIndex(2)
                                             }
@@ -554,14 +546,10 @@ struct CalendarHourlyGrid: View {
         // leaving a second "actual work" block beneath the task.
         let _ = viewModel.timerSecondsElapsed
         let plannedDurationPx = CGFloat(viewModel.calendarDuration(for: todo, at: Date()) / 60.0) * pointsPerMinute
-        // One minute in a task equals one minute on the hour rail. There is no
-        // card-height floor: 30 minutes is half the height of one hour.
-        // Brief recorded work stays honest in reports but receives a readable
-        // display height. This is visual-only and never enters scheduling.
-        let hasRecordedWork = (todo.timeSessions ?? []).contains {
-            $0.end != nil && ($0.duration ?? 0) > 0
-        }
-        let heightPx = max(hasRecordedWork ? 14 : 1, plannedDurationPx)
+        // Every card has a readable 15-minute display footprint. Task duration
+        // stays exact in storage and schedule calculations; short planned cards
+        // overlap at their true start positions instead of moving each other.
+        let heightPx = max(15 * pointsPerMinute, plannedDurationPx)
         let plannedMinutes = Int(viewModel.calendarDuration(for: todo, at: Date()) / 60.0)
         return (plannedStartPx, heightPx, false, plannedMinutes)
     }
