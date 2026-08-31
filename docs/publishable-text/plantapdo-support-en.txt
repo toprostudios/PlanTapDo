@@ -18,4 +18,8 @@ PlanTapDo's optional category upgrade is processed by Apple through the App Stor
 
 ## Privacy
 
-PlanTapDo does not collect task data through the app in version 1. If you contact support, we use the information in your message only to respond and resolve your request. Read the PlanTapDo Privacy Policy for details and privacy-request contact information.
+PlanTapDo does not collect task data through the app in version 1. If you contact support, we use the information in your message only to respond and resolve your request. Read the PlanTapDo Privacy Policy at https://toproindustry.site/privacy for details and privacy-request contact information.
+
+## Terms of Use
+
+Your use of PlanTapDo is governed by the PlanTapDo Terms of Use at https://toproindustry.site/terms, together with Apple's Standard Licensed Application End User License Agreement where it applies.

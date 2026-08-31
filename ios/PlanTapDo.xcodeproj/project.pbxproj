@@ -415,7 +415,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				API_BASE_URL = "http://127.0.0.1:8000/api/";
-				PRIVACY_POLICY_URL = "";
+				PRIVACY_POLICY_URL = "https://toproindustry.site/privacy";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -433,7 +433,8 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				SUPPORTED_PLATFORMS = iphoneos;
-				SUPPORT_URL = "";
+				SUPPORT_URL = "https://toproindustry.site/support";
+				TERMS_OF_USE_URL = "https://toproindustry.site/terms";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -442,7 +443,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				API_BASE_URL = "";
-				PRIVACY_POLICY_URL = "";
+				PRIVACY_POLICY_URL = "https://toproindustry.site/privacy";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -460,7 +461,8 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				SUPPORTED_PLATFORMS = iphoneos;
-				SUPPORT_URL = "";
+				SUPPORT_URL = "https://toproindustry.site/support";
+				TERMS_OF_USE_URL = "https://toproindustry.site/terms";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

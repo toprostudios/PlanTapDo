@@ -20,6 +20,10 @@ struct SettingsView: View {
         configuredHTTPSURL(forInfoKey: "SUPPORT_URL")
     }
 
+    private var termsOfUseURL: URL? {
+        configuredHTTPSURL(forInfoKey: "TERMS_OF_USE_URL")
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             Picker("Settings section", selection: $selectedSection) {
@@ -83,8 +87,11 @@ struct SettingsView: View {
                 if let supportURL {
                     Link("Support", destination: supportURL)
                 }
-                if privacyPolicyURL == nil || supportURL == nil {
-                    Text("Privacy and support links must be configured in the release build.")
+                if let termsOfUseURL {
+                    Link("Terms of Use", destination: termsOfUseURL)
+                }
+                if privacyPolicyURL == nil || supportURL == nil || termsOfUseURL == nil {
+                    Text("Privacy, support, and Terms links must be configured in the release build.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

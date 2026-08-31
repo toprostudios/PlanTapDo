@@ -68,9 +68,11 @@ show the purchase in App Store Connect metadata and review notes.
 - No account or cloud backend is part of the shipping v1 experience.
 - The privacy policy must accurately describe on-device task storage and any
   purchase data handled by Apple. It must not claim cloud sync.
-- The support URL must provide a real way to contact the developer.
+- The privacy, Terms, and support URLs must provide accurate information and a
+  real way to contact the developer.
 - Publish the versioned sources in `docs/publishable-text/` at the privacy and
-  support URLs before archiving. These legal pages do not define product scope.
+  Terms and support URLs before archiving. These legal pages do not define
+  product scope.
 - Test the complete release build on physical iPhone and iPad hardware before
   submission. Submit truthful screenshots and metadata for the shipped feature
   set.

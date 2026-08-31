@@ -1,0 +1,75 @@
+# PlanTapDo Terms of Use
+
+**Effective date:** August 30, 2026  
+**Last updated:** August 30, 2026
+
+These Terms of Use ("Terms") govern your use of the PlanTapDo iPhone and iPad app and related support services (the "Service"), operated by **Topro Industry Inc** ("PlanTapDo," "we," "us," or "our"). By using the Service, you agree to these Terms and acknowledge the Privacy Policy at https://toproindustry.site/privacy. Apple's Standard Licensed Application End User License Agreement at https://www.apple.com/legal/internet-services/itunes/dev/stdeula/ (the "Apple EULA") also applies.
+
+If you do not agree, do not use the Service.
+
+## The Service
+
+PlanTapDo is a local-first personal planner for tasks, schedules, timers, reports, categories, and protected Off Time. Version 1 does not offer a PlanTapDo account, cloud synchronization, or server-hosted task storage.
+
+PlanTapDo is not medical, mental-health, legal, safety, financial, employment, or emergency advice. It does not guarantee that you will complete tasks, meet deadlines, or achieve any particular productivity result. Notifications, operating-system behavior, device permissions, App Store services, and device settings can affect the availability or timing of the Service.
+
+## Acceptable use
+
+You may use the Service only for personal, lawful purposes. You must not interfere with the Service, introduce malicious code, probe for vulnerabilities without written permission, reverse engineer or circumvent the Service except where applicable law permits, or use the Service in a way that violates law or another person's rights.
+
+## Purchases
+
+PlanTapDo may offer a one-time in-app purchase that unlocks unlimited categories. Before you confirm a purchase, Apple displays the product, localized price, currency, taxes where applicable, and any other transaction terms. The information Apple displays when you confirm controls the transaction.
+
+Payment is charged to your Apple Account when Apple confirms the purchase. Purchases, billing, restoration, and refunds are administered by Apple and are subject to Apple's terms and applicable consumer law. You can request a refund at https://reportaproblem.apple.com/. Removing PlanTapDo does not cancel or reverse a completed purchase.
+
+## Local content and privacy
+
+You retain your rights in the tasks, notes, and other content you create. PlanTapDo version 1 stores that content on your device and does not upload it to a PlanTapDo account or backend. Removing the app generally removes its local app data, subject to normal iOS and device-backup behavior controlled by Apple and you. See https://toproindustry.site/privacy for details.
+
+## Ownership and licence
+
+The Service, including its software, design, PlanTapDo-supplied content, names, and marks, is owned by Topro Industry Inc or its licensors and is protected by law. Subject to these Terms and the Apple EULA, we grant you a limited, personal, non-exclusive, non-transferable, revocable licence to use the app for its intended purpose on Apple-branded products you own or control and as Apple otherwise permits.
+
+Feedback you voluntarily provide may be used without restriction or compensation, but we will not publicly identify you as its source without permission.
+
+## Changes and discontinuation
+
+You may stop using the Service at any time. We may change or discontinue features or the Service and will provide reasonable notice of a material discontinuation when practicable. Any effect on a completed purchase remains subject to Apple's rules and mandatory consumer law.
+
+## Disclaimers
+
+To the maximum extent permitted by law, PlanTapDo and the Service are provided "as is" and "as available." We do not warrant that the Service will always be uninterrupted, error-free, secure, or compatible with every device or operating-system version.
+
+These disclaimers do not exclude warranties, remedies, or rights that cannot be excluded under the Quebec Consumer Protection Act, other applicable consumer law, or the Apple EULA.
+
+## Limitation of liability
+
+To the maximum extent permitted by law, Topro Industry Inc and its directors, officers, employees, and contractors will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for loss of profits, goodwill, use, or data arising from the Service.
+
+To the maximum extent permitted by law, our total liability arising from the Service or these Terms will not exceed the greater of **CAD $100** and the amount you paid for PlanTapDo through Apple during the 12 months before the event giving rise to the claim.
+
+These exclusions and limits do not apply to fraud, intentional or gross fault, bodily or moral injury, or any liability, remedy, or consumer right that applicable law does not permit us to exclude or limit.
+
+## Apple-specific terms
+
+You and Topro Industry Inc acknowledge that these Terms are between you and Topro Industry Inc, not Apple. Apple is not responsible for operating or supporting PlanTapDo except as required by law or the Apple EULA. Apple and its subsidiaries are third-party beneficiaries of the Apple EULA and may enforce it. App Store purchases remain governed by Apple's applicable terms.
+
+## Changes to these Terms
+
+We may update these Terms to reflect changes to the Service, law, security, or business practices. We will post the updated Terms and revise the "Last updated" date. Material changes apply prospectively, and we will provide notice or obtain consent when required by law.
+
+## Governing law and disputes
+
+These Terms are governed by the laws of the Province of Quebec and the federal laws of Canada applicable there, without limiting mandatory protections available under the law where you live. These Terms do not require arbitration, waive a class proceeding, or limit a non-waivable right to complain to a regulator or consumer-protection authority.
+
+## General
+
+If a provision is unenforceable, it will be limited or removed only to the extent necessary, and the remaining provisions will continue. Our failure to enforce a provision is not a waiver. We may transfer these Terms as part of a lawful business transaction, subject to applicable law.
+
+## Contact
+
+**Topro Industry Inc**  
+**1 Rue du Medoc**  
+**Kirkland, QC H9H 4Z3, Canada**  
+**yangli@toproindustry.site**

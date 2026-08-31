@@ -49,8 +49,9 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
 
 ### TestFlight archive
 
-Version 1 does not require a backend URL. Supply live privacy-policy and
-support URLs when archiving.
+Version 1 does not require a backend URL. Its privacy policy, Terms of Use,
+and support links use the shared Topro Industry HTTPS pages; publish the
+matching current text before archiving.
 
 ```bash
 xcodebuild -project ios/PlanTapDo.xcodeproj \
@@ -58,14 +59,12 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
   -configuration Release \
   -destination generic/platform=iOS \
   -archivePath build/PlanTapDo.xcarchive \
-  'PRIVACY_POLICY_URL=https://www.your-domain.example/privacy' \
-  'SUPPORT_URL=https://www.your-domain.example/support' \
   archive
 ```
 
-Both public links must be live before submission. The privacy policy must match
-the local-only data behavior described in `PRODUCT_PLAN.md`; the support page
-must include a working way to contact you.
+All three public links must be live before submission. The privacy policy and
+Terms must match the local-only data behavior described in `PRODUCT_PLAN.md`;
+the support page must include a working way to contact you.
 
 Use the repository's configured Apple team and automatic signing in Xcode, then
 validate and upload the archive from Organizer. Before each upload, increment

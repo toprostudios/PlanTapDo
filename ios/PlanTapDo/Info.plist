@@ -6,8 +6,10 @@
 		<string>$(API_BASE_URL)</string>
 		<key>PRIVACY_POLICY_URL</key>
 		<string>$(PRIVACY_POLICY_URL)</string>
-		<key>SUPPORT_URL</key>
-		<string>$(SUPPORT_URL)</string>
+	<key>SUPPORT_URL</key>
+	<string>$(SUPPORT_URL)</string>
+	<key>TERMS_OF_USE_URL</key>
+	<string>$(TERMS_OF_USE_URL)</string>
 		<key>NSAppTransportSecurity</key>
 		<dict>
 			<key>NSAllowsLocalNetworking</key>
