@@ -1,7 +1,9 @@
 from datetime import timedelta
 import re
+from unittest import mock
 
 from django.contrib.auth.hashers import identify_hasher
+from django.core.cache import cache
 from django.core import mail
 from django.test import TestCase, override_settings
 from django.urls import reverse
@@ -20,6 +22,7 @@ from .security import revoke_access_token
 
 class AccountAndSyncTests(TestCase):
     def setUp(self):
+        cache.clear()
         mail.outbox.clear()
         self.client = APIClient()
         self.register_url = reverse("auth_register")
@@ -113,6 +116,31 @@ class AccountAndSyncTests(TestCase):
         )
         self.assertNotIn("email", str(response.data).lower())
 
+    def test_registration_validation_does_not_reveal_existing_identifier(self):
+        client = APIClient()
+        existing = client.post(
+            self.register_url,
+            {
+                "username": self.user.username,
+                "email": self.user.email,
+                "password": "short",
+            },
+            format="json",
+        )
+        missing = client.post(
+            self.register_url,
+            {
+                "username": "not-registered",
+                "email": "not-registered@plantapdo.app",
+                "password": "short",
+            },
+            format="json",
+        )
+
+        self.assertEqual(existing.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(existing.status_code, missing.status_code)
+        self.assertEqual(existing.data, missing.data)
+
     def test_user_profile_me(self):
         response = self.client.get(self.me_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -123,6 +151,21 @@ class AccountAndSyncTests(TestCase):
         update_response = self.client.patch(self.me_url, {"first_name": "UpdatedName"}, format="json")
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
         self.assertEqual(update_response.data["first_name"], "UpdatedName")
+
+    def test_verified_profile_cannot_change_email_without_reverification(self):
+        self.user.email_verified_at = timezone.now()
+        self.user.save(update_fields=["email_verified_at"])
+
+        response = self.client.patch(
+            self.me_url,
+            {"email": "unverified-new-address@plantapdo.app"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, "test@plantapdo.app")
+        self.assertIsNotNone(self.user.email_verified_at)
 
     def test_account_deletion_requires_password_and_removes_all_account_data(self):
         category = Category.objects.create(name="Private", owner=self.user)
@@ -490,6 +533,39 @@ class AccountAndSyncTests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("planned_start_time", response.data)
+
+    def test_invalid_notification_preference_is_rejected(self):
+        category_response = self.client.post(
+            reverse("category-list"),
+            {"name": "Unsafe reminder", "notificationPreference": "unexpected:5"},
+            format="json",
+        )
+        todo_response = self.client.post(
+            reverse("todo-list"),
+            {"title": "Unsafe reminder", "notificationPreference": "before:10081"},
+            format="json",
+        )
+
+        self.assertEqual(category_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(todo_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("notificationPreference", category_response.data)
+        self.assertIn("notificationPreference", todo_response.data)
+
+    def test_duplicate_subtask_ids_are_rejected(self):
+        response = self.client.post(
+            reverse("todo-list"),
+            {
+                "title": "Ambiguous subtasks",
+                "subtasks": [
+                    {"id": "same", "title": "First", "completed": False},
+                    {"id": "same", "title": "Second", "completed": False},
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("subtasks", response.data)
 
     def test_invalid_sync_rolls_back_every_change(self):
         response = self.client.post(
@@ -919,6 +995,31 @@ class WebSocketAuthenticationTests(TestCase):
             connected, _ = await communicator.connect()
             self.assertTrue(connected)
             message = await communicator.receive_output(timeout=4)
+            self.assertEqual(message["type"], "websocket.close")
+            self.assertEqual(message["code"], 4401)
+
+        async_to_sync(scenario)()
+
+    def test_connected_socket_fails_closed_when_auth_monitor_errors(self):
+        token = self.access_token()
+        token.set_exp(lifetime=timedelta(seconds=1))
+
+        async def scenario():
+            communicator = WebsocketCommunicator(
+                application,
+                "/ws/todos/",
+                headers=[
+                    (b"origin", b"http://localhost"),
+                    (b"authorization", f"Bearer {token}".encode("ascii")),
+                ],
+            )
+            connected, _ = await communicator.connect()
+            self.assertTrue(connected)
+            with mock.patch(
+                "timetodo_api.consumers.socket_token_is_active",
+                side_effect=RuntimeError("cache unavailable"),
+            ):
+                message = await communicator.receive_output(timeout=3)
             self.assertEqual(message["type"], "websocket.close")
             self.assertEqual(message["code"], 4401)
 

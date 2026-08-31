@@ -112,6 +112,9 @@ struct PersistedAppState: Codable {
 
 struct AppStateStore {
     private let fileURL: URL
+    private var backupFileURL: URL {
+        fileURL.appendingPathExtension("backup")
+    }
 
     static let live: AppStateStore = {
         let baseURL = FileManager.default.urls(
@@ -128,10 +131,16 @@ struct AppStateStore {
     }
 
     func load() -> PersistedAppState? {
-        guard let data = try? Data(contentsOf: fileURL) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try? decoder.decode(PersistedAppState.self, from: data)
+        for candidateURL in [fileURL, backupFileURL] {
+            guard let data = try? Data(contentsOf: candidateURL),
+                  let state = try? decoder.decode(PersistedAppState.self, from: data) else {
+                continue
+            }
+            return state
+        }
+        return nil
     }
 
     func save(_ state: PersistedAppState) throws {
@@ -148,5 +157,8 @@ struct AppStateStore {
         encoder.dateEncodingStrategy = .iso8601
         let data = try encoder.encode(state)
         try data.write(to: fileURL, options: [.atomic, .completeFileProtection])
+        // Keep an independently replaceable copy so a damaged primary state
+        // file does not turn into an empty workspace on the next launch.
+        try data.write(to: backupFileURL, options: [.atomic, .completeFileProtection])
     }
 }

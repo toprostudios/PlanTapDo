@@ -32,7 +32,11 @@ Tasks without a planned time remain simple list items; scheduled tasks appear on
 Version 1 stores workspace state locally with complete file protection in
 Application Support. There is no reachable account, login, or cloud-sync flow.
 
-Onboarding and payment are intentionally paused: their source files remain available for later work but are excluded from the application target. The current release opens directly into the core planner.
+Onboarding and account/cloud screens are intentionally paused: their source
+files remain available for later work but are excluded from the application
+target. The current release opens directly into the core planner. The only v1
+purchase is the optional StoreKit category-limit upgrade described in
+`PRODUCT_PLAN.md`.
 
 Run the iOS unit tests on a connected iPhone or iPad:
 

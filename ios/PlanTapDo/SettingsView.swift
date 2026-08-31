@@ -36,18 +36,33 @@ struct SettingsView: View {
             case .reports: ReportsView(viewModel: viewModel)
             }
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(AppCanvasBackground())
     }
 
     private var generalSettings: some View {
         Form {
             Section("✅ Task Visibility") {
                 Toggle("Show completed tasks", isOn: $viewModel.showCompletedTasks)
+                Toggle("Show recurring tasks in lists", isOn: $viewModel.showRecurringTasksInLists)
+                Text("When off, recurring tasks appear only in calendar views. One-time tasks remain in all lists.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("▶️ Running tasks") {
                 Toggle("Start another task automatically", isOn: $viewModel.automaticallySwitchRunningTask)
                 Text("When enabled, starting another task stops the current timer, keeps the recorded segment, and moves its unfinished time later in the schedule. When disabled, stop the current task first.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("🗓️ Flexible tasks") {
+                Toggle("Untimed tasks yield to timed tasks", isOn: $viewModel.untimedTasksYieldToTimedTasks)
+                Text("Tasks without a start time fill available gaps and never move appointments with a set time.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Allow untimed tasks during off time", isOn: $viewModel.allowUntimedTasksDuringOffTime)
+                Text("When enabled, flexible tasks can use protected off-time hours if they need the space.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

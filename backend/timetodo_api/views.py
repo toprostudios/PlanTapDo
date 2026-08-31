@@ -164,21 +164,25 @@ class RegisterView(generics.GenericAPIView):
     serializer_class = RegisterSerializer
 
     def post(self, request):
-        raw_username = str(request.data.get("username", "")).strip()
-        raw_email = str(request.data.get("email", "")).strip()
-        existing_email_user = User.objects.filter(email__iexact=raw_email).first()
-        username_exists = User.objects.filter(username__iexact=raw_username).exists()
+        # Validate the complete payload before checking conflicts. Otherwise a
+        # weak password receives 202 for an existing identifier but 400 for a
+        # missing one, turning validation status into an account-enumeration
+        # oracle despite the generic conflict response.
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        username = serializer.validated_data["username"]
+        email = serializer.validated_data["email"]
+        existing_email_user = User.objects.filter(email__iexact=email).first()
+        username_exists = User.objects.filter(username__iexact=username).exists()
         if username_exists or existing_email_user is not None:
             if (
                 existing_email_user is not None
                 and existing_email_user.email_verified_at is None
-                and existing_email_user.username.casefold() == raw_username.casefold()
+                and existing_email_user.username.casefold() == username.casefold()
             ):
                 send_challenge(existing_email_user, AuthChallenge.Kind.VERIFY_EMAIL)
             return Response(GENERIC_REGISTRATION_RESPONSE, status=status.HTTP_202_ACCEPTED)
 
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
         try:
             user = serializer.save()
         except serializers.ValidationError:
@@ -896,6 +900,7 @@ class SyncView(generics.GenericAPIView):
             "due_time": ("due_time", "dueTime"),
             "do_date": ("do_date", "doDate"),
             "planned_start_time": ("planned_start_time", "plannedStartTime"),
+            "scheduled_not_before": ("scheduled_not_before", "scheduledNotBefore"),
             "planned_duration": ("planned_duration", "plannedDuration"),
             "descriptive_deadline": ("descriptive_deadline", "descriptiveDeadline"),
             "category_id": ("category_id", "category"),

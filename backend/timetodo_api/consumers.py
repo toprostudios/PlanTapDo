@@ -1,11 +1,15 @@
 import asyncio
 import json
+import logging
 import time
 
 from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 
 from .security import access_token_is_active
+
+
+logger = logging.getLogger(__name__)
 
 
 @database_sync_to_async
@@ -50,6 +54,13 @@ class TodoConsumer(AsyncWebsocketConsumer):
                     return
             except asyncio.CancelledError:
                 break
+            except Exception:
+                # Cache/session checks are part of authentication. A backend
+                # outage must close the socket instead of silently killing this
+                # monitor and leaving an authenticated connection open.
+                logger.warning("WebSocket authentication monitor failed", exc_info=True)
+                await self.close(code=4401)
+                return
 
     async def receive(self, text_data=None, bytes_data=None):
         # This channel is server-to-client only. Mutations must pass through the

@@ -4,6 +4,7 @@ import base64
 from datetime import timedelta
 import hashlib
 import hmac
+import re
 import secrets
 import struct
 import time
@@ -27,6 +28,8 @@ CHALLENGE_RESEND_COOLDOWN = timedelta(seconds=60)
 GENERIC_CHALLENGE_ERROR = "The code is invalid or has expired."
 SESSION_ID_CLAIM = "session_id"
 SESSION_VERSION_CLAIM = "session_version"
+DUMMY_CHALLENGE_DIGEST = make_password(secrets.token_urlsafe(32))
+RECOVERY_CODE_PATTERN = re.compile(r"^[A-HJ-NP-Z2-9]{4}(?:-[A-HJ-NP-Z2-9]{4}){2}$")
 
 
 def _fernet() -> MultiFernet:
@@ -102,6 +105,8 @@ def verify_mfa_code(user: User, candidate: str, *, consume_recovery: bool) -> bo
         return True
 
     normalized = candidate.strip().upper()
+    if RECOVERY_CODE_PATTERN.fullmatch(normalized) is None:
+        return False
     for index, digest in enumerate(user.mfa_recovery_code_hashes):
         if check_password(normalized, digest):
             if consume_recovery:
@@ -213,6 +218,9 @@ def consume_challenge(email: str, kind: str, code: str) -> User:
             .first()
         )
         if user is None:
+            # Match the expensive hash verification performed for a real
+            # account so this generic endpoint does not become a timing oracle.
+            check_password(code.strip(), DUMMY_CHALLENGE_DIGEST)
             raise ValidationError({"code": GENERIC_CHALLENGE_ERROR})
         challenge = (
             AuthChallenge.objects.select_for_update()
@@ -221,13 +229,17 @@ def consume_challenge(email: str, kind: str, code: str) -> User:
             .first()
         )
         now = timezone.now()
+        code_matches = check_password(
+            code.strip(),
+            challenge.code_digest if challenge is not None else DUMMY_CHALLENGE_DIGEST,
+        )
         if (
             challenge is None
             or challenge.expires_at <= now
             or challenge.attempts >= MAX_CHALLENGE_ATTEMPTS
         ):
             raise ValidationError({"code": GENERIC_CHALLENGE_ERROR})
-        if not check_password(code.strip(), challenge.code_digest):
+        if not code_matches:
             challenge.attempts += 1
             challenge.save(update_fields=["attempts"])
             raise ValidationError({"code": GENERIC_CHALLENGE_ERROR})

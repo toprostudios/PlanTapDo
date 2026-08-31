@@ -1,10 +1,13 @@
 // CalendarHourlyGrid.swift
 import SwiftUI
 
-struct CalendarOverlapLayout {
+/// Calculates a single-column display timeline. When planned tasks collide,
+/// later tasks flow below the preceding card rather than becoming narrow
+/// side-by-side lanes.
+struct CalendarSequentialLayout {
     static func compute(
         for todos: [TodoEntry]
-    ) -> [UUID: (colIndex: Int, totalCols: Int)] {
+    ) -> [UUID: Double] {
         struct Interval {
             let id: UUID
             let start: Double
@@ -19,10 +22,10 @@ struct CalendarOverlapLayout {
             return Interval(
                 id: todo.id,
                 start: start,
-                // Layout remains faithful to the actual schedule. Historical
-                // cards may get a display-only minimum height later, but that
-                // must not create artificial schedule conflicts or push work.
-                end: start + max(1, todo.plannedDuration / 60)
+                // Use the same 15-minute minimum as the rendered card, so
+                // short tasks also flow one after another.
+                // This is display-only; stored schedules remain unchanged.
+                end: start + max(15, todo.plannedDuration / 60)
             )
         }
         .sorted {
@@ -30,41 +33,12 @@ struct CalendarOverlapLayout {
             return $0.start < $1.start
         }
 
-        var result: [UUID: (colIndex: Int, totalCols: Int)] = [:]
-
-        func assignLanes(to cluster: [Interval]) {
-            var laneEnds: [Double] = []
-            var laneByID: [UUID: Int] = [:]
-
-            for interval in cluster {
-                if let availableLane = laneEnds.firstIndex(where: { $0 <= interval.start }) {
-                    laneEnds[availableLane] = interval.end
-                    laneByID[interval.id] = availableLane
-                } else {
-                    laneByID[interval.id] = laneEnds.count
-                    laneEnds.append(interval.end)
-                }
-            }
-
-            let totalColumns = max(1, laneEnds.count)
-            for interval in cluster {
-                result[interval.id] = (laneByID[interval.id] ?? 0, totalColumns)
-            }
-        }
-
-        var cluster: [Interval] = []
-        var clusterEnd = -Double.infinity
+        var result: [UUID: Double] = [:]
+        var cursor = -Double.infinity
         for interval in intervals {
-            if !cluster.isEmpty, interval.start >= clusterEnd {
-                assignLanes(to: cluster)
-                cluster.removeAll(keepingCapacity: true)
-                clusterEnd = -Double.infinity
-            }
-            cluster.append(interval)
-            clusterEnd = max(clusterEnd, interval.end)
-        }
-        if !cluster.isEmpty {
-            assignLanes(to: cluster)
+            let displayStart = max(interval.start, cursor)
+            result[interval.id] = displayStart
+            cursor = displayStart + (interval.end - interval.start)
         }
         return result
     }
@@ -92,6 +66,7 @@ struct CalendarHourlyGrid: View {
     private struct CompletedWorkGroup: Identifiable {
         let todos: [TodoEntry]
         let startMinute: Int
+        let durationMinutes: Int
 
         var id: String { todos.map(\.id.uuidString).joined(separator: "-") }
     }
@@ -140,13 +115,10 @@ struct CalendarHourlyGrid: View {
 
     private func dayTodos(for targetDate: Date) -> [TodoEntry] {
         let calendar = Calendar.current
-        return viewModel.todos.filter {
-            let hasRecordedWork = ($0.timeSessions ?? []).contains {
-                $0.end != nil && ($0.duration ?? 0) > 0
-            }
+        return viewModel.calendarTodos(on: targetDate, at: now).filter {
             return calendar.isDate($0.doDate, inSameDayAs: targetDate)
                 && $0.plannedStartTime?.isEmpty == false
-                && ($0.status != .completed || hasRecordedWork)
+                && ($0.status != .completed || viewModel.hasCalendarWorkRecord($0))
                 && $0.status != .archived
                 && $0.status != .skipped
         }
@@ -154,11 +126,11 @@ struct CalendarHourlyGrid: View {
     }
 
     private func hasRecordedWork(_ todo: TodoEntry) -> Bool {
-        (todo.timeSessions ?? []).contains { $0.end != nil && ($0.duration ?? 0) > 0 }
+        viewModel.hasCalendarWorkRecord(todo)
     }
 
     /// Completed work shares one readable card per quarter-hour. The underlying
-    /// tasks and exact durations remain separate for reports and task details.
+    /// sessions remain separate for reports and the todo list remains history-free.
     private func completedWorkGroups(in todos: [TodoEntry]) -> [CompletedWorkGroup] {
         let grouped = Dictionary(grouping: todos.filter {
             $0.status == .completed && hasRecordedWork($0)
@@ -167,14 +139,24 @@ struct CalendarHourlyGrid: View {
         }
 
         return grouped.values.compactMap { group in
-            guard group.count > 1 else { return nil }
             let ordered = group.sorted {
                 Self.minutes(from: $0.plannedStartTime ?? "00:00") < Self.minutes(from: $1.plannedStartTime ?? "00:00")
             }
             guard let first = ordered.first else { return nil }
+            let startMinute = (Self.minutes(from: first.plannedStartTime ?? "00:00") / 15) * 15
+            // A grouped history card begins at its quarter-hour bucket, but it
+            // must still cover the full recorded span of its longest session.
+            // Otherwise marking an hour-long task done visually shrinks it to
+            // the 15-minute minimum used for short records.
+            let endMinute = ordered.reduce(startMinute) { latestEnd, todo in
+                let todoStart = Self.minutes(from: todo.plannedStartTime ?? "00:00")
+                let todoDuration = max(15, Int(ceil(todo.plannedDuration / 60)))
+                return max(latestEnd, todoStart + todoDuration)
+            }
             return CompletedWorkGroup(
                 todos: ordered,
-                startMinute: (Self.minutes(from: first.plannedStartTime ?? "00:00") / 15) * 15
+                startMinute: startMinute,
+                durationMinutes: max(15, endMinute - startMinute)
             )
         }
         .sorted { $0.startMinute < $1.startMinute }
@@ -196,7 +178,7 @@ struct CalendarHourlyGrid: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 7)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .frame(height: 15 * pointsPerMinute)
+            .frame(height: CGFloat(group.durationMinutes) * pointsPerMinute)
             .background(RoundedRectangle(cornerRadius: 12).fill(Color.indigo.opacity(0.76)))
             .padding(.horizontal, 2)
             .contentShape(Rectangle())
@@ -267,10 +249,6 @@ struct CalendarHourlyGrid: View {
         return result
     }
 
-    private func computeOverlapLayouts(for targetDate: Date) -> [UUID: (colIndex: Int, totalCols: Int)] {
-        CalendarOverlapLayout.compute(for: dayTodos(for: targetDate))
-    }
-
     var body: some View {
         GeometryReader { outerGeo in
             let totalAvailableWidth = max(320, outerGeo.size.width)
@@ -335,7 +313,7 @@ struct CalendarHourlyGrid: View {
                                 let stackedTodoIDs = Set(completedGroups.flatMap { $0.todos.map(\.id) })
                                 let visibleTodos = todosForDay.filter { !stackedTodoIDs.contains($0.id) }
                                 let focusBlocksForDay = focusBlocks(for: colDate)
-                                let overlapMap = CalendarOverlapLayout.compute(for: visibleTodos)
+                                let sequentialStartMap = CalendarSequentialLayout.compute(for: visibleTodos)
                                 let transportBlocks = computeTransportBlocks(for: colDate)
                                 let isColToday = Calendar.current.isDateInToday(colDate)
                                 let formattedDateStr = isCompactLayout
@@ -440,21 +418,16 @@ struct CalendarHourlyGrid: View {
 
                                             // Render Task Cards
                                             ForEach(visibleTodos) { todo in
-                                                let metrics = getPushedMetrics(for: todo, targetDate: colDate)
+                                                let metrics = getPushedMetrics(
+                                                    for: todo,
+                                                    displayStartMinute: sequentialStartMap[todo.id]
+                                                )
                                                 let cat = category(for: todo.categoryId)
-                                                // Brief planned work keeps its true start position and
-                                                // layers in one lane rather than being squeezed into columns.
-                                                let isShortPlannedTask = todo.status == .pending
-                                                    && todo.plannedDuration < 15 * 60
-                                                let layout = isShortPlannedTask
-                                                    ? (0, 1)
-                                                    : (overlapMap[todo.id] ?? (0, 1))
 
                                                 CalendarCardView(
                                                     todo: todo,
                                                     metrics: metrics,
                                                     cat: cat,
-                                                    layout: layout,
                                                     containerWidth: geo.size.width,
                                                     draggingTodoId: draggingTodoId,
                                                     dragYTranslation: dragYTranslation,
@@ -538,7 +511,10 @@ struct CalendarHourlyGrid: View {
         return "\(h):00 \(period)"
     }
 
-    private func getPushedMetrics(for todo: TodoEntry, targetDate: Date) -> (top: CGFloat, height: CGFloat, isPushed: Bool, compressedMinutes: Int) {
+    private func getPushedMetrics(
+        for todo: TodoEntry,
+        displayStartMinute: Double?
+    ) -> (top: CGFloat, height: CGFloat, isPushed: Bool, compressedMinutes: Int) {
         guard let timeStr = todo.plannedStartTime else {
             return (0, 0, false, 0)
         }
@@ -547,17 +523,18 @@ struct CalendarHourlyGrid: View {
         let m = parts.count > 1 ? parts[1] : 0.0
 
         let clampedHour = max(7.0, min(22.0, h))
-        let plannedStartPx = ((clampedHour - 7.0) * 60.0 + m) * pointsPerMinute
+        let plannedStartMinute = clampedHour * 60.0 + m
+        let effectiveStartMinute = displayStartMinute ?? plannedStartMinute
+        let plannedStartPx = (effectiveStartMinute - 7.0 * 60.0) * pointsPerMinute
         // Depend on the stopwatch so an active card grows smoothly instead of
         // leaving a second "actual work" block beneath the task.
         let _ = viewModel.timerSecondsElapsed
         let plannedDurationPx = CGFloat(viewModel.calendarDuration(for: todo, at: Date()) / 60.0) * pointsPerMinute
         // Every card has a readable 15-minute display footprint. Task duration
-        // stays exact in storage and schedule calculations; short planned cards
-        // overlap at their true start positions instead of moving each other.
+        // stays exact in storage and schedule calculations.
         let heightPx = max(15 * pointsPerMinute, plannedDurationPx)
         let plannedMinutes = Int(viewModel.calendarDuration(for: todo, at: Date()) / 60.0)
-        return (plannedStartPx, heightPx, false, plannedMinutes)
+        return (plannedStartPx, heightPx, effectiveStartMinute > plannedStartMinute, plannedMinutes)
     }
 
     private func updateTimeForTodo(_ todo: TodoEntry, verticalOffset: CGFloat) {
@@ -624,11 +601,13 @@ struct TaskComposerView: View {
     @State private var notes = ""
     @State private var startDate: Date
     @State private var duration = 5
+    @State private var hasPlannedTime = true
     @State private var categoryId: UUID?
     @State private var notificationPreference: NotificationPreference?
     @State private var showingAddCategory = false
     @State private var showingCustomDuration = false
     @State private var customDurationText = "5"
+    @State private var showingDateWheel = false
 
     init(viewModel: TodoViewModel, start: Date, showsSchedule: Bool = true) {
         self.viewModel = viewModel
@@ -645,11 +624,12 @@ struct TaskComposerView: View {
                         Label("What needs doing?", systemImage: "checkmark.circle")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(.secondary)
-                        TextField("Task name", text: $title)
+                        TextField("Task name", text: $title, axis: .vertical)
                             .font(.headline)
+                            .lineLimit(1...2)
                             .modernTextInput()
                         TextField("Notes (optional)", text: $notes, axis: .vertical)
-                            .lineLimit(2...5)
+                            .lineLimit(1...5)
                             .modernTextInput()
                     }
 
@@ -658,14 +638,39 @@ struct TaskComposerView: View {
                             Label("Schedule", systemImage: "calendar")
                                 .font(.headline)
 
-                            DatePicker("Starts", selection: $startDate, displayedComponents: [.date, .hourAndMinute])
-                                .datePickerStyle(.compact)
+                            HStack {
+                                Label("Day", systemImage: "calendar")
+                                Spacer()
+                                Menu {
+                                    Button("Today") { setDay(offset: 0) }
+                                    Button("Tomorrow") { setDay(offset: 1) }
+                                    Button("This weekend") { setDay(offset: daysUntilWeekend) }
+                                    Button(showingDateWheel ? "Hide date picker" : "Choose a date…") {
+                                        showingDateWheel.toggle()
+                                    }
+                                } label: {
+                                    Text(scheduleDayLabel)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Color.indigo)
+                                }
+                            }
+
+                            if showingDateWheel {
+                                RelativeDayWheelPicker(date: $startDate)
+                            }
+
+                            Toggle("Set a start time", isOn: $hasPlannedTime)
+
+                            if hasPlannedTime {
+                                FiveMinuteTimePicker(date: $startDate)
+                            }
 
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("Duration")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                 Picker("Duration", selection: $duration) {
+                                    Text("Unspecified (5 min estimate)").tag(0)
                                     ForEach(durationChoices, id: \.self) { minutes in
                                         Text(durationLabel(minutes)).tag(minutes)
                                     }
@@ -680,15 +685,18 @@ struct TaskComposerView: View {
                                 }
                                 .font(.subheadline.weight(.semibold))
                                 .frame(maxWidth: .infinity, alignment: .leading)
+
+                                if duration == 0 {
+                                    Text("Unspecified tasks stay in the list and do not appear on the calendar.")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                         .padding(16)
                         .background(RoundedRectangle(cornerRadius: 16).fill(Color(uiColor: .secondarySystemGroupedBackground)))
 
                         VStack(alignment: .leading, spacing: 12) {
-                            Label("Task preferences", systemImage: "slider.horizontal.3")
-                                .font(.headline)
-
                             HStack {
                                 Label("Category", systemImage: "tag")
                                 Spacer()
@@ -708,8 +716,6 @@ struct TaskComposerView: View {
                                 categoryId = nil
                                 showingAddCategory = true
                             }
-
-                            Divider()
 
                             HStack {
                                 Label("Notification", systemImage: "bell")
@@ -787,6 +793,7 @@ struct TaskComposerView: View {
     private static let newCategoryOptionID = UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
 
     private func durationLabel(_ minutes: Int) -> String {
+        if minutes == 0 { return "Unspecified (5 min estimate)" }
         if minutes < 60 { return "\(minutes) min" }
         let hours = minutes / 60
         let remainder = minutes % 60
@@ -798,18 +805,38 @@ struct TaskComposerView: View {
     }
 
     private func add() {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         AppHaptics.success()
         viewModel.createTodo(
-            title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+            title: trimmedTitle,
             description: notes.isEmpty ? nil : notes,
             doDate: startDate,
-            plannedStartTime: showsSchedule ? TodoEntry.apiTimeString(from: startDate) : nil,
+            plannedStartTime: showsSchedule && hasPlannedTime ? TodoEntry.apiTimeString(from: startDate) : nil,
             plannedDuration: TimeInterval(duration * 60),
             categoryId: categoryId,
-            notificationPreference: showsSchedule ? notificationPreference : nil
+            notificationPreference: showsSchedule && hasPlannedTime ? notificationPreference : nil
         )
+        viewModel.showTaskAddedFeedback(for: trimmedTitle)
         dismiss()
     }
+
+    private var scheduleDayLabel: String {
+        if Calendar.current.isDateInToday(startDate) { return "Today" }
+        if Calendar.current.isDateInTomorrow(startDate) { return "Tomorrow" }
+        return startDate.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
+    }
+
+    private var daysUntilWeekend: Int {
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        return (7 - weekday + 7) % 7
+    }
+
+    private func setDay(offset: Int) {
+        guard let day = Calendar.current.date(byAdding: .day, value: offset, to: Date()) else { return }
+        let time = Calendar.current.dateComponents([.hour, .minute], from: startDate)
+        startDate = Calendar.current.date(bySettingHour: time.hour ?? 9, minute: time.minute ?? 0, second: 0, of: day) ?? day
+    }
+
 }
 
 // MARK: - Extracted Card View Subview for Fast Swift Compilation
@@ -817,7 +844,6 @@ struct CalendarCardView: View {
     let todo: TodoEntry
     let metrics: (top: CGFloat, height: CGFloat, isPushed: Bool, compressedMinutes: Int)
     let cat: Category?
-    let layout: (colIndex: Int, totalCols: Int)
     let containerWidth: CGFloat
     let draggingTodoId: UUID?
     let dragYTranslation: CGFloat
@@ -853,14 +879,19 @@ struct CalendarCardView: View {
     }
 
     var body: some View {
-        let colWidth = containerWidth / CGFloat(layout.totalCols)
-        let leftOffset = CGFloat(layout.colIndex) * colWidth
+        let colWidth = containerWidth
+        let leftOffset: CGFloat = 0
         let currentDragOffset = (draggingTodoId == todo.id) ? dragYTranslation : 0
         // Week columns are narrow, but still show a compact title rather than
         // becoming unlabeled colored bars. The card itself stays inside its day.
         let showsCardText = colWidth >= 32
         let showsTime = showsCardText && metrics.height >= 44
         let verticalPadding: CGFloat = metrics.height < 36 ? 2 : 6
+        // A small gap and shadow keep adjacent appointments from reading as
+        // one continuous color block, while retaining their timeline position.
+        let cardVerticalInset: CGFloat = metrics.height < 28 ? 1 : 2
+        let cardHeight = max(10, metrics.height - cardVerticalInset * 2)
+        let cardShape = RoundedRectangle(cornerRadius: 13, style: .continuous)
 
         HStack(alignment: .top, spacing: 5) {
             if showsCardText {
@@ -902,20 +933,32 @@ struct CalendarCardView: View {
         // Apply the exact timeline size before drawing and clipping. Clipping
         // earlier used the text's intrinsic size, which let long titles escape
         // the calendar block after its final frame was applied.
-        .frame(width: max(1, colWidth - 4), height: metrics.height, alignment: .topLeading)
+        .frame(width: max(1, colWidth - 4), height: cardHeight, alignment: .topLeading)
         .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(metrics.isPushed ? catColor.opacity(0.58) : catColor)
+            cardShape.fill(
+                LinearGradient(
+                    colors: metrics.isPushed
+                        ? [catColor.opacity(0.70), catColor.opacity(0.48)]
+                        : [catColor.opacity(0.98), catColor.opacity(0.72)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
         )
         .overlay(
-            Rectangle()
-                .fill(catColor)
-                .frame(width: 3),
-            alignment: .leading
+            cardShape.stroke(Color.white.opacity(0.28), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14))
-        .contentShape(RoundedRectangle(cornerRadius: 14))
-        .offset(x: leftOffset + 2, y: metrics.top + currentDragOffset)
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(Color.white.opacity(0.46))
+                .frame(width: 3, height: max(8, cardHeight - 12))
+                .padding(.leading, 3)
+        }
+        .clipShape(cardShape)
+        .contentShape(cardShape)
+        .shadow(color: .black.opacity(isTimerActive ? 0.28 : 0.18), radius: isTimerActive ? 5 : 3, y: 2)
+        .shadow(color: .white.opacity(0.18), radius: 1, y: -1)
+        .offset(x: leftOffset + 2, y: metrics.top + cardVerticalInset + currentDragOffset)
         .animation(.linear(duration: 0.2), value: metrics.top)
         .onTapGesture { handleTaskTap() }
         .gesture(

@@ -126,6 +126,7 @@ class TodoEntry(models.Model):
     planned_start_time = models.CharField(
         max_length=10, blank=True, null=True, validators=[time_validator]
     )
+    scheduled_not_before = models.DateTimeField(blank=True, null=True)
     planned_duration = models.PositiveIntegerField(
         default=30,
         help_text="Minutes",
@@ -156,6 +157,13 @@ class TodoEntry(models.Model):
     )
     recurrence_weekdays = models.JSONField(default=list, blank=True)
     recurrence_series_id = models.UUIDField(blank=True, null=True)
+    split_parent_id = models.UUIDField(blank=True, null=True)
+    split_original_duration = models.PositiveIntegerField(
+        blank=True,
+        null=True,
+        validators=[MaxValueValidator(525_600)],
+        help_text="Minutes; full estimate while an automatic Off Time split is active.",
+    )
     owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name="todos")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

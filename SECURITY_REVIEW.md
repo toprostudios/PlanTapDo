@@ -1,6 +1,6 @@
 # PlanTapDo security review
 
-Review date: 2026-08-24
+Review date: 2026-08-28
 
 ## Executive assessment
 
@@ -25,8 +25,8 @@ network rule that does not yet exist.
 | --- | ---: | ---: |
 | Critical | 0 | 0 |
 | High | 0 | 2 |
-| Medium | 0 | 7 |
-| Low | 0 | 3 |
+| Medium | 0 | 11 |
+| Low | 0 | 4 |
 
 ## Addressed findings
 
@@ -158,6 +158,38 @@ state. Timer sessions use stable client-generated UUIDs, and the sync endpoint
 validates ownership for both session upserts and deletions. A stale download is
 discarded if the local mutation generation changes while it is in flight.
 
+### M-09: Account lifecycle edge cases weakened identity verification
+
+Resolution: registration now validates the entire request before checking for
+identifier conflicts, so a weak password cannot distinguish an existing
+account by producing a different status. The generic email-code confirmation
+path performs equivalent password-hash work for missing accounts to reduce its
+timing signal. A verified profile can no longer replace its email address until
+a dedicated re-verification flow exists.
+
+### M-10: Authentication failures could leave stale client sessions active
+
+Resolution: a WebSocket closes if its periodic revocation/cache check errors
+instead of silently losing the authentication monitor. The iOS refresh path
+also compares the session it started with before saving rotated credentials, so
+a late network response cannot restore credentials after logout or an account
+switch.
+
+### M-11: Local recovery and notification scheduling needed stronger bounds
+
+Resolution: every successful protected state write now maintains a protected
+backup, and launch falls back to it if the primary JSON is damaged. Local
+notification updates are generation-checked to prevent stale asynchronous work
+from restoring deleted reminders, tolerate duplicate category identifiers, and
+select the nearest 64 reminders to respect iOS's pending-notification limit.
+
+### L-04: Client/server validation and purchase presentation were incomplete
+
+Resolution: notification preferences and lead times now use a shared bounded
+format, duplicate subtask identifiers are rejected, and unknown local values
+decode safely to off. The Premium UI displays StoreKit's localized live price
+and disables unavailable products instead of presenting hard-coded prices.
+
 ## Accepted product boundary
 
 PlanTapDo is not end-to-end encrypted. The API must process task content, and
@@ -186,14 +218,14 @@ client-side encryption design and feature-impact review.
 
 ## Verification performed
 
-- Django API tests: 55 passed; production configuration tests: 8 passed.
-- iOS unit tests: 16 passed on the iOS 26.5 simulator.
+- Django API and production-configuration tests: 60 passed.
+- iOS unit tests: 21 passed on a connected physical iPhone.
 - Django migration drift check: no changes detected.
 - Django production `check --deploy`: no issues with a representative
   fail-closed configuration.
 - Bandit application scan: no findings after excluding test/migration code.
 - `pip-audit` against the hashed lockfile: no known vulnerabilities reported on
   the review date.
-- Unsigned generic iPhone device build: succeeded.
+- Unsigned generic iPhoneOS Debug and Release builds: succeeded.
 - Secret-pattern/current tracked-file review: no committed production
   credential or private-key material found.

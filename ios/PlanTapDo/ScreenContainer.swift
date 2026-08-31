@@ -31,13 +31,13 @@ extension View {
             .padding(.vertical, 12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.thinMaterial)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.92))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.primary.opacity(0.10), lineWidth: 1)
+                    .stroke(Color.primary.opacity(0.09), lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.035), radius: 5, y: 2)
+            .shadow(color: .black.opacity(0.06), radius: 8, y: 3)
     }
 
     func modernTextEditor(minHeight: CGFloat = 132) -> some View {
@@ -46,7 +46,7 @@ extension View {
             .frame(minHeight: minHeight)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.thinMaterial)
+                    .fill(Color(uiColor: .secondarySystemGroupedBackground).opacity(0.92))
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -62,9 +62,9 @@ extension View {
 private struct TactileButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .opacity(configuration.isPressed ? 0.82 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .scaleEffect(configuration.isPressed ? 0.965 : 1)
+            .brightness(configuration.isPressed ? -0.035 : 0)
+            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
     }
 }
 
@@ -158,20 +158,135 @@ struct ScreenContainer<Content: View>: View {
             .frame(width: geometry.size.width, height: geometry.size.height)
         }
         .background {
-            ZStack {
-                Color(uiColor: .systemGroupedBackground)
-
-                LinearGradient(
-                    colors: [
-                        Color.indigo.opacity(0.12),
-                        Color.purple.opacity(0.04),
-                        Color.clear
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            .ignoresSafeArea()
+            AppCanvasBackground()
         }
+    }
+}
+
+struct AppCanvasBackground: View {
+    var body: some View {
+        ZStack {
+            Color(uiColor: .systemGroupedBackground)
+            LinearGradient(
+                colors: [
+                    Color.indigo.opacity(0.16),
+                    Color.purple.opacity(0.055),
+                    Color.clear
+                ],
+                startPoint: .topLeading,
+                endPoint: .center
+            )
+            RadialGradient(
+                colors: [Color.cyan.opacity(0.075), .clear],
+                center: .bottomTrailing,
+                startRadius: 20,
+                endRadius: 440
+            )
+        }
+        .ignoresSafeArea()
+    }
+}
+
+/// A compact one-column date picker for short-horizon planning. It avoids the
+/// separate month/day/year wheels used by the system date picker.
+struct RelativeDayWheelPicker: View {
+    @Binding var date: Date
+    var dayRange: ClosedRange<Int> = 0...365
+
+    var body: some View {
+        Picker("Day", selection: dayOffset) {
+            ForEach(Array(dayRange), id: \.self) { offset in
+                Text(label(for: offset)).tag(offset)
+            }
+        }
+        .pickerStyle(.wheel)
+        .frame(height: 126)
+        .clipped()
+    }
+
+    private var dayOffset: Binding<Int> {
+        Binding(
+            get: {
+                Calendar.current.dateComponents(
+                    [.day],
+                    from: Calendar.current.startOfDay(for: Date()),
+                    to: Calendar.current.startOfDay(for: date)
+                ).day ?? 0
+            },
+            set: { offset in
+                let calendar = Calendar.current
+                guard let day = calendar.date(byAdding: .day, value: offset, to: Date()) else { return }
+                let time = calendar.dateComponents([.hour, .minute], from: date)
+                date = calendar.date(
+                    bySettingHour: time.hour ?? 9,
+                    minute: time.minute ?? 0,
+                    second: 0,
+                    of: day
+                ) ?? day
+            }
+        )
+    }
+
+    private func label(for offset: Int) -> String {
+        let calendar = Calendar.current
+        guard let day = calendar.date(byAdding: .day, value: offset, to: Date()) else { return "Choose date" }
+        switch offset {
+        case 0: return "Today · " + day.formatted(.dateTime.weekday(.wide))
+        case 1: return "Tomorrow · " + day.formatted(.dateTime.weekday(.wide))
+        default: return day.formatted(.dateTime.weekday(.wide).month(.wide).day())
+        }
+    }
+}
+
+/// An appointment time picker with a five-minute minute wheel, preventing
+/// accidental times such as 9:08 while preserving normal wheel interaction.
+struct FiveMinuteTimePicker: View {
+    @Binding var date: Date
+
+    var body: some View {
+        HStack(spacing: -6) {
+            Picker("Hour", selection: hour) {
+                ForEach(0..<24, id: \.self) { value in
+                    Text(hourLabel(value)).tag(value)
+                }
+            }
+            .pickerStyle(.wheel)
+            .frame(width: 142)
+
+            Picker("Minute", selection: minute) {
+                ForEach(Array(stride(from: 0, to: 60, by: 5)), id: \.self) { value in
+                    Text(String(format: ":%02d", value)).tag(value)
+                }
+            }
+            .pickerStyle(.wheel)
+            .frame(width: 92)
+        }
+        .frame(height: 126)
+        .frame(maxWidth: .infinity)
+        .clipped()
+        .accessibilityElement(children: .contain)
+    }
+
+    private var hour: Binding<Int> {
+        Binding(
+            get: { Calendar.current.component(.hour, from: date) },
+            set: { setTime(hour: $0, minute: Calendar.current.component(.minute, from: date)) }
+        )
+    }
+
+    private var minute: Binding<Int> {
+        Binding(
+            get: { (Calendar.current.component(.minute, from: date) / 5) * 5 },
+            set: { setTime(hour: Calendar.current.component(.hour, from: date), minute: $0) }
+        )
+    }
+
+    private func setTime(hour: Int, minute: Int) {
+        date = Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: date) ?? date
+    }
+
+    private func hourLabel(_ hour: Int) -> String {
+        let displayHour = hour % 12 == 0 ? 12 : hour % 12
+        return "\(displayHour) " + (hour < 12 ? "AM" : "PM")
     }
 }

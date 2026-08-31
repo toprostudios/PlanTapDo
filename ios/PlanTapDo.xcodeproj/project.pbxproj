@@ -22,14 +22,12 @@
 		A1000014 /* CalendarHourlyGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000014 /* CalendarHourlyGrid.swift */; };
 		A1000015 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000015 /* SettingsView.swift */; };
 		A1000017 /* AnalyticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000017 /* AnalyticsView.swift */; };
-		A1000018 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000018 /* AccountView.swift */; };
 		A1000020 /* ScreenContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000020 /* ScreenContainer.swift */; };
 		A1000021 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B1000021 /* Assets.xcassets */; };
 		A1000024 /* AppStateStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000024 /* AppStateStore.swift */; };
 		A1000025 /* CredentialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000025 /* CredentialStore.swift */; };
 		A1000027 /* LocalNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000027 /* LocalNotificationManager.swift */; };
 		A1000028 /* SubscriptionManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000022 /* SubscriptionManager.swift */; };
-		A1000029 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000023 /* OnboardingView.swift */; };
 		A1000026 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = B1000026 /* PrivacyInfo.xcprivacy */; };
 		A3000001 /* AppStateStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B3000001 /* AppStateStoreTests.swift */; };
 		A3000002 /* XCTest.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B3000002 /* XCTest.framework */; };
@@ -269,13 +267,11 @@
 				A1000014 /* CalendarHourlyGrid.swift in Sources */,
 				A1000015 /* SettingsView.swift in Sources */,
 				A1000017 /* AnalyticsView.swift in Sources */,
-				A1000018 /* AccountView.swift in Sources */,
 				A1000020 /* ScreenContainer.swift in Sources */,
 				A1000024 /* AppStateStore.swift in Sources */,
 				A1000025 /* CredentialStore.swift in Sources */,
 				A1000027 /* LocalNotificationManager.swift in Sources */,
 				A1000028 /* SubscriptionManager.swift in Sources */,
-				A1000029 /* OnboardingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

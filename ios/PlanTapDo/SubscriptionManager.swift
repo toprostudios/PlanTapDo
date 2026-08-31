@@ -57,15 +57,25 @@ final class SubscriptionManager: ObservableObject {
     }
 
     func loadProducts() async {
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
         do {
             let loadedProducts = try await Product.products(for: PremiumPlan.allCases.map(\.productID))
-            products = Dictionary(uniqueKeysWithValues: loadedProducts.map { ($0.id, $0) })
+            products = Dictionary(
+                loadedProducts.map { ($0.id, $0) },
+                uniquingKeysWith: { first, _ in first }
+            )
             if products.isEmpty {
                 errorMessage = "Premium purchases are temporarily unavailable. Please try again later."
             }
         } catch {
             errorMessage = "Couldn’t load the subscription. Please check your connection and try again."
         }
+    }
+
+    func displayPrice(for plan: PremiumPlan) -> String? {
+        products[plan.productID]?.displayPrice
     }
 
     func purchase(_ plan: PremiumPlan) async {
@@ -110,7 +120,9 @@ final class SubscriptionManager: ObservableObject {
             let result = try await product.purchase()
             switch result {
             case .success(let verification):
-                guard case .verified(let transaction) = verification else {
+                guard case .verified(let transaction) = verification,
+                      transaction.productID == product.id,
+                      PremiumPlan.allCases.map(\.productID).contains(transaction.productID) else {
                     errorMessage = "We couldn’t verify the purchase. Please try again."
                     break
                 }
@@ -132,7 +144,9 @@ final class SubscriptionManager: ObservableObject {
     private func observeTransactionUpdates() -> Task<Void, Never> {
         Task { [weak self] in
             for await result in Transaction.updates {
-                guard case .verified(let transaction) = result else { continue }
+                guard case .verified(let transaction) = result,
+                      PremiumPlan.allCases.map(\.productID).contains(transaction.productID)
+                else { continue }
                 await self?.refreshEntitlements()
                 await transaction.finish()
             }

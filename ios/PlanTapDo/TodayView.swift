@@ -1,14 +1,44 @@
 // TodayView.swift
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TodayView: View {
     @ObservedObject var viewModel: TodoViewModel
 
     @State private var selectedTodo: TodoEntry?
     @State private var showingTaskComposer = false
+    @State private var draggingTodoID: UUID?
+    @State private var dropTargetTodoID: UUID?
 
-    private var todayTodos: [TodoEntry] {
-        viewModel.todos(on: Date())
+    private var activeTodayTodos: [TodoEntry] {
+        todos(on: Date(), with: { $0.status != .completed })
+    }
+
+    private var completedTodayTodos: [TodoEntry] {
+        guard viewModel.showCompletedTasks else { return [] }
+        return todos(on: Date(), with: { $0.status == .completed })
+    }
+
+    private func todos(on date: Date, with statusMatches: (TodoEntry) -> Bool) -> [TodoEntry] {
+        viewModel.todos.filter {
+            Calendar.current.isDate($0.doDate, inSameDayAs: date)
+                && statusMatches($0)
+                && $0.status != .archived
+                && $0.status != .skipped
+                && viewModel.shouldDisplayInList($0)
+        }
+        .sorted {
+            if $0.sortOrder != $1.sortOrder, $0.sortOrder != 0 || $1.sortOrder != 0 {
+                let leftOrder = $0.sortOrder == 0 ? Int.max : $0.sortOrder
+                let rightOrder = $1.sortOrder == 0 ? Int.max : $1.sortOrder
+                return leftOrder < rightOrder
+            }
+            let leftTime = $0.plannedStartTime ?? "23:59"
+            let rightTime = $1.plannedStartTime ?? "23:59"
+            return leftTime == rightTime
+                ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                : leftTime < rightTime
+        }
     }
 
     private func category(for categoryId: UUID?) -> Category? {
@@ -24,22 +54,50 @@ struct TodayView: View {
                         pageHeader
                         layoutPicker
                         LazyVStack(spacing: 6) {
-                            ForEach(todayTodos) { todo in
+                            ForEach(activeTodayTodos) { todo in
                                 TaskListRowView(
                                     todo: todo,
                                     category: category(for: todo.categoryId),
                                     viewModel: viewModel,
                                     onOpen: { selectedTodo = todo }
                                 )
+                                .overlay(alignment: .top) {
+                                    if dropTargetTodoID == todo.id, draggingTodoID != todo.id {
+                                        Capsule()
+                                            .fill(Color.indigo)
+                                            .frame(height: 3)
+                                            .padding(.horizontal, 8)
+                                            .transition(.opacity.combined(with: .scale))
+                                    }
+                                }
+                                .animation(.spring(response: 0.18, dampingFraction: 0.82), value: dropTargetTodoID)
+                                .onDrag {
+                                    draggingTodoID = todo.id
+                                    return NSItemProvider(object: todo.id.uuidString as NSString)
+                                }
+                                .onDrop(of: [UTType.plainText], delegate: TodayTaskDropDelegate(
+                                    destinationID: todo.id,
+                                    draggingTodoID: $draggingTodoID,
+                                    dropTargetTodoID: $dropTargetTodoID,
+                                    visibleIDs: activeTodayTodos.map(\.id),
+                                    onReorder: viewModel.setManualListOrder
+                                ))
                             }
 
-                            if todayTodos.isEmpty {
+                            if activeTodayTodos.isEmpty {
                                 VStack(spacing: 8) {
                                     Text("🎉 All clear for Today!")
                                         .font(.headline)
                                 }
                                 .padding(40)
                             }
+
+                            CompletedTaskListSection(
+                                todos: completedTodayTodos,
+                                viewModel: viewModel,
+                                categoryFor: category,
+                                onOpen: { selectedTodo = $0 }
+                            )
                         }
                         .padding(.bottom, 20)
                     }
@@ -105,6 +163,54 @@ struct TodayView: View {
 
 }
 
+/// Keeps finished tasks out of the active stream while preserving the optional
+/// completed-task setting in every normal task list.
+struct CompletedTaskListSection: View {
+    let todos: [TodoEntry]
+    @ObservedObject var viewModel: TodoViewModel
+    let categoryFor: (UUID?) -> Category?
+    let onOpen: (TodoEntry) -> Void
+    var usesOuterPadding = true
+    @State private var isExpanded = false
+
+    var body: some View {
+        if !todos.isEmpty {
+            Divider().padding(.vertical, 6)
+
+            Button {
+                AppHaptics.selection()
+                withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("Completed (\(todos.count))")
+                        .font(.subheadline.weight(.bold))
+                    Spacer()
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, usesOuterPadding ? 16 : 0)
+                .padding(.vertical, 8)
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                ForEach(todos) { todo in
+                    TaskListRowView(
+                        todo: todo,
+                        category: categoryFor(todo.categoryId),
+                        viewModel: viewModel,
+                        onOpen: { onOpen(todo) },
+                        usesOuterPadding: usesOuterPadding
+                    )
+                }
+            }
+        }
+    }
+}
+
 struct TaskListRowView: View {
     let todo: TodoEntry
     let category: Category?
@@ -146,7 +252,8 @@ struct TaskListRowView: View {
                             .font(.subheadline)
                             .strikethrough(todo.status == .completed)
                             .foregroundStyle(todo.status == .completed ? .secondary : .primary)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
 
                         if let icon = category?.icon {
                             Text(icon)
@@ -155,7 +262,11 @@ struct TaskListRowView: View {
                     }
 
                     if let plannedStartTime = todo.plannedStartTime, !plannedStartTime.isEmpty {
-                        Label("\(plannedStartTime) · \(Int(todo.plannedDuration / 60)) min", systemImage: "clock")
+                        Label("\(plannedStartTime) · \(durationLabel)", systemImage: "clock")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    } else if todo.plannedDuration == 0 {
+                        Label("5 min estimate · not on calendar", systemImage: "clock")
                             .font(.caption2.weight(.medium))
                             .foregroundStyle(.secondary)
                     }
@@ -196,14 +307,30 @@ struct TaskListRowView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 12)
         .padding(.vertical, 11)
-        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial))
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: todo.status == .completed
+                            ? [Color.secondary.opacity(0.10), Color.secondary.opacity(0.05)]
+                            : [taskColor.opacity(0.16), Color(uiColor: .secondarySystemGroupedBackground).opacity(0.92)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.20), lineWidth: 1)
+        )
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(taskColor)
                 .frame(width: 4)
         }
         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .shadow(color: .black.opacity(0.045), radius: 8, y: 3)
+        .shadow(color: taskColor.opacity(0.10), radius: 12, y: 5)
+        .shadow(color: .black.opacity(0.035), radius: 3, y: 1)
         .padding(.horizontal, usesOuterPadding ? 16 : 0)
         .contextMenu {
             Button(action: onOpen) {
@@ -222,6 +349,58 @@ struct TaskListRowView: View {
                 Label("Delete Task", systemImage: "trash")
             }
         }
+    }
+
+    private var durationLabel: String {
+        todo.plannedDuration == 0
+            ? "5 min estimate · not on calendar"
+            : "\(Int(todo.plannedDuration / 60)) min"
+    }
+}
+
+private struct TodayTaskDropDelegate: DropDelegate {
+    let destinationID: UUID
+    @Binding var draggingTodoID: UUID?
+    @Binding var dropTargetTodoID: UUID?
+    let visibleIDs: [UUID]
+    let onReorder: ([UUID]) -> Void
+
+    func dropEntered(info: DropInfo) {
+        guard let sourceID = draggingTodoID,
+              sourceID != destinationID else { return }
+
+        withAnimation(.spring(response: 0.18, dampingFraction: 0.82)) {
+            dropTargetTodoID = destinationID
+        }
+    }
+
+    func dropExited(info: DropInfo) {
+        guard dropTargetTodoID == destinationID else { return }
+        withAnimation(.spring(response: 0.18, dampingFraction: 0.82)) {
+            dropTargetTodoID = nil
+        }
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        DropProposal(operation: .move)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        defer {
+            draggingTodoID = nil
+            dropTargetTodoID = nil
+        }
+
+        guard let sourceID = draggingTodoID,
+              sourceID != destinationID,
+              let sourceIndex = visibleIDs.firstIndex(of: sourceID),
+              let destinationIndex = visibleIDs.firstIndex(of: destinationID) else { return false }
+
+        var reordered = visibleIDs
+        reordered.remove(at: sourceIndex)
+        reordered.insert(sourceID, at: min(destinationIndex, reordered.count))
+        onReorder(reordered)
+        return true
     }
 }
 
@@ -250,7 +429,7 @@ struct TaskDetailView: View {
         _doDate = State(initialValue: todo.doDate)
         _hasPlannedTime = State(initialValue: todo.plannedStartTime != nil)
         _plannedTime = State(initialValue: Self.date(from: todo.plannedStartTime) ?? Date())
-        _durationMinutes = State(initialValue: max(15, Int(todo.plannedDuration / 60)))
+        _durationMinutes = State(initialValue: max(0, Int(todo.plannedDuration / 60)))
         _categoryId = State(initialValue: todo.categoryId)
         _recurrenceFrequency = State(initialValue: todo.recurrenceFrequency)
         _recurrenceWeekdays = State(initialValue: Set(todo.recurrenceWeekdays ?? []))
@@ -261,36 +440,36 @@ struct TaskDetailView: View {
         NavigationStack {
             Form {
                 Section("Task") {
-                    TextField("Task title", text: $title)
+                    TextField("Task title", text: $title, axis: .vertical)
+                        .lineLimit(1...2)
                         .modernTextInput()
 
-                    TextEditor(text: $description)
-                        .modernTextEditor(minHeight: 140)
-                        .overlay(alignment: .topLeading) {
-                            if description.isEmpty {
-                                Text("Add a description or notes")
-                                    .foregroundStyle(.tertiary)
-                                    .padding(.top, 8)
-                                    .padding(.leading, 4)
-                                    .allowsHitTesting(false)
-                            }
-                        }
+                    TextField("Add a description or notes", text: $description, axis: .vertical)
+                        .lineLimit(1...5)
+                        .modernTextInput()
                 }
 
                 Section("Schedule") {
-                    DatePicker("Day", selection: $doDate, displayedComponents: .date)
+                    RelativeDayWheelPicker(date: $doDate, dayRange: -30...365)
                     Toggle("Set a time", isOn: $hasPlannedTime)
 
                     if hasPlannedTime {
-                        DatePicker("Start", selection: $plannedTime, displayedComponents: .hourAndMinute)
-                        Picker("Duration", selection: $durationMinutes) {
-                            Text("15 min").tag(15)
-                            Text("30 min").tag(30)
-                            Text("45 min").tag(45)
-                            Text("1 hour").tag(60)
-                            Text("1.5 hours").tag(90)
-                            Text("2 hours").tag(120)
-                        }
+                        FiveMinuteTimePicker(date: $plannedTime)
+                    }
+
+                    Picker("Duration", selection: $durationMinutes) {
+                        Text("Unspecified (5 min estimate)").tag(0)
+                        Text("15 min").tag(15)
+                        Text("30 min").tag(30)
+                        Text("45 min").tag(45)
+                        Text("1 hour").tag(60)
+                        Text("1.5 hours").tag(90)
+                        Text("2 hours").tag(120)
+                    }
+                    if durationMinutes == 0 {
+                        Text("Unspecified tasks stay in the list and do not appear on the calendar.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
 
                     Picker("Repeat", selection: $recurrenceFrequency) {
@@ -304,19 +483,16 @@ struct TaskDetailView: View {
                 }
 
                 if hasPlannedTime {
-                    Section("Notification") {
+                    Section {
                         NotificationPreferencePicker(
                             preference: $notificationPreference,
                             inheritedPreference: categoryId.flatMap { id in viewModel.categories.first { $0.id == id }?.notificationPreference },
                             allowsInheritedDefault: true
                         )
-                        Text("A notification is scheduled only when this task has a start time.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
                     }
                 }
 
-                Section("Organization") {
+                Section {
                     Picker("Category", selection: $categoryId) {
                         Text("No Category").tag(UUID?.none)
                         ForEach(viewModel.categories) { category in
@@ -393,6 +569,7 @@ struct TaskDetailView: View {
         viewModel.updateTodo(updatedTodo)
         dismiss()
     }
+
 
     private static func date(from time: String?) -> Date? {
         guard let time else { return nil }

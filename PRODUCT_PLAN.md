@@ -21,12 +21,15 @@ PlanTapDo turns a personal task list into a live daily schedule.
 - Today offers a list and a vertical calendar. Upcoming offers the same view
   for future dates.
 - An overdue, unstarted task moves ahead of the current-time line and pushes
-  following work forward.
+  following work forward. Its user-set date and time remain a “not before”
+  floor, so reflow can restore it when the day catches back up but never place
+  it earlier than originally planned.
 - Starting work moves that task to the current time. The one task card displays
   the stopwatch and grows when work exceeds its planned duration.
 - Calendar task cards have a 15-minute minimum display height while keeping
   their exact planned and tracked duration in storage. Short planned cards
-  retain their true start times and can overlap visually. Completed tasks in
+  retain their true start times and reserve that 15-minute display interval,
+  so visually conflicting cards use separate lanes. Completed tasks in
   the same 15-minute window are shown together as a comma-separated history
   card.
 - Tap once to open a calendar task, double tap to start or stop it, and triple

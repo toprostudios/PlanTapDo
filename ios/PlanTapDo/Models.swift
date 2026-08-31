@@ -90,8 +90,20 @@ enum NotificationPreference: Codable, Hashable, Identifiable {
         if value == "none" { self = .none; return }
         if value == "atTime" { self = .atTime; return }
         let parts = value.split(separator: ":")
-        guard parts.count == 2, let minutes = Int(parts[1]), minutes > 0 else { self = .none; return }
-        self = parts[0] == "beforeAndAtTime" ? .beforeAndAtTime(minutes: minutes) : .before(minutes: minutes)
+        guard parts.count == 2,
+              let minutes = Int(parts[1]),
+              (1...10_080).contains(minutes) else {
+            self = .none
+            return
+        }
+        switch parts[0] {
+        case "before":
+            self = .before(minutes: minutes)
+        case "beforeAndAtTime":
+            self = .beforeAndAtTime(minutes: minutes)
+        default:
+            self = .none
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -265,7 +277,15 @@ struct TodoEntry: Identifiable, Codable, Hashable {
     var dueTime: String?         // HH:MM (e.g. "18:00")
     var descriptiveDeadline: String? // Descriptive deadline note (no effect on calendar position)
     var plannedStartTime: String? // HH:MM (e.g. "09:30")
-    var plannedDuration: TimeInterval // seconds (e.g. 1800 for 30m)
+    /// The user-set earliest date and time for this task. Automatic reflows may
+    /// move it later, but never earlier than this point.
+    var scheduledNotBefore: Date?
+    /// Seconds. Zero means the estimate is unspecified (a five-minute default
+    /// is used outside the calendar).
+    var plannedDuration: TimeInterval
+    /// User-controlled order for task-list views. Zero is the legacy/default
+    /// value, which keeps the time-and-title ordering until a list is reordered.
+    var sortOrder: Int
     var categoryId: UUID?
     var status: TodoStatus
     var priority: PriorityLevel?
@@ -281,6 +301,13 @@ struct TodoEntry: Identifiable, Codable, Hashable {
     var recurrenceWeekdays: [Int]?
     var recurrenceSeriesId: UUID?
     var completedAt: Date?
+    /// When automatic reflow spills a task over Off Time, this identifies the
+    /// generated next-day piece. It is rebuilt on each reflow, never a second
+    /// user-created task.
+    var splitParentID: UUID?
+    /// The parent's full estimate while its visible card is temporarily
+    /// shortened to the portion that still fits before Off Time.
+    var splitOriginalDuration: TimeInterval?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -291,7 +318,9 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         case dueTime
         case descriptiveDeadline
         case plannedStartTime
+        case scheduledNotBefore
         case plannedDuration
+        case sortOrder
         case categoryId
         case status
         case priority
@@ -305,6 +334,8 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         case recurrenceWeekdays
         case recurrenceSeriesId
         case completedAt
+        case splitParentID
+        case splitOriginalDuration
     }
 
     init(
@@ -317,6 +348,7 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         descriptiveDeadline: String?,
         plannedStartTime: String?,
         plannedDuration: TimeInterval,
+        sortOrder: Int = 0,
         categoryId: UUID?,
         status: TodoStatus,
         priority: PriorityLevel?,
@@ -330,7 +362,10 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         recurrenceFrequency: RecurrenceFrequency = .none,
         recurrenceWeekdays: [Int]? = nil,
         recurrenceSeriesId: UUID? = nil,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        scheduledNotBefore: Date? = nil,
+        splitParentID: UUID? = nil,
+        splitOriginalDuration: TimeInterval? = nil
     ) {
         self.id = id
         self.title = title
@@ -340,7 +375,9 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         self.dueTime = dueTime
         self.descriptiveDeadline = descriptiveDeadline
         self.plannedStartTime = plannedStartTime
+        self.scheduledNotBefore = scheduledNotBefore
         self.plannedDuration = plannedDuration
+        self.sortOrder = sortOrder
         self.categoryId = categoryId
         self.status = status
         self.priority = priority
@@ -355,6 +392,8 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         self.recurrenceWeekdays = recurrenceWeekdays
         self.recurrenceSeriesId = recurrenceSeriesId
         self.completedAt = completedAt
+        self.splitParentID = splitParentID
+        self.splitOriginalDuration = splitOriginalDuration
     }
 
     init(from decoder: Decoder) throws {
@@ -368,9 +407,11 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         dueTime = try container.decodeIfPresent(String.self, forKey: .dueTime)
         descriptiveDeadline = try container.decodeIfPresent(String.self, forKey: .descriptiveDeadline)
         plannedStartTime = try container.decodeIfPresent(String.self, forKey: .plannedStartTime)
+        scheduledNotBefore = Self.decodeDate(from: container, forKey: .scheduledNotBefore)
 
         let durationMinutes = try container.decodeIfPresent(Double.self, forKey: .plannedDuration) ?? 30
         plannedDuration = durationMinutes * 60
+        sortOrder = try container.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
 
         categoryId = try container.decodeIfPresent(UUID.self, forKey: .categoryId)
         status = try container.decodeIfPresent(TodoStatus.self, forKey: .status) ?? .pending
@@ -386,6 +427,12 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         recurrenceWeekdays = try container.decodeIfPresent([Int].self, forKey: .recurrenceWeekdays)
         recurrenceSeriesId = try container.decodeIfPresent(UUID.self, forKey: .recurrenceSeriesId)
         completedAt = Self.decodeDate(from: container, forKey: .completedAt)
+        splitParentID = try container.decodeIfPresent(UUID.self, forKey: .splitParentID)
+        if let splitMinutes = try container.decodeIfPresent(Double.self, forKey: .splitOriginalDuration) {
+            splitOriginalDuration = splitMinutes * 60
+        } else {
+            splitOriginalDuration = nil
+        }
     }
 
     func encode(to encoder: Encoder) throws {
@@ -402,7 +449,13 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         try container.encode(dueTime, forKey: .dueTime)
         try container.encode(descriptiveDeadline, forKey: .descriptiveDeadline)
         try container.encode(plannedStartTime, forKey: .plannedStartTime)
+        if let scheduledNotBefore {
+            try container.encode(Self.apiDateTimeFormatter.string(from: scheduledNotBefore), forKey: .scheduledNotBefore)
+        } else {
+            try container.encodeNil(forKey: .scheduledNotBefore)
+        }
         try container.encode(max(0, Int((plannedDuration / 60).rounded())), forKey: .plannedDuration)
+        try container.encode(sortOrder, forKey: .sortOrder)
         try container.encode(categoryId, forKey: .categoryId)
         try container.encode(status, forKey: .status)
         try container.encodeIfPresent(priority, forKey: .priority)
@@ -419,6 +472,12 @@ struct TodoEntry: Identifiable, Codable, Hashable {
             try container.encode(Self.apiDateTimeFormatter.string(from: completedAt), forKey: .completedAt)
         } else {
             try container.encodeNil(forKey: .completedAt)
+        }
+        try container.encodeIfPresent(splitParentID, forKey: .splitParentID)
+        if let splitOriginalDuration {
+            try container.encode(max(0, Int((splitOriginalDuration / 60).rounded())), forKey: .splitOriginalDuration)
+        } else {
+            try container.encodeNil(forKey: .splitOriginalDuration)
         }
     }
 

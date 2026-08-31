@@ -38,6 +38,7 @@ MAX_SUBTASKS = 200
 MAX_SUBTASK_TITLE_LENGTH = 300
 MAX_PLANNED_DURATION_MINUTES = 525_600
 MAX_TRAVEL_DURATION_MINUTES = 10_080
+MAX_NOTIFICATION_LEAD_MINUTES = 10_080
 
 
 def _validate_iso_date_or_datetime(value: str | None, field_name: str) -> str | None:
@@ -63,6 +64,23 @@ def _normalize_email(value: str) -> str:
     return BaseUserManager.normalize_email(value.strip())
 
 
+def _validate_notification_preference(value: str) -> str:
+    """Accept only the notification values understood by the native client."""
+
+    if value in {"none", "atTime"}:
+        return value
+    match = re.fullmatch(r"(before|beforeAndAtTime):(\d+)", value)
+    if match is None:
+        raise serializers.ValidationError("Choose a supported notification preference.")
+    minutes = int(match.group(2))
+    if not 1 <= minutes <= MAX_NOTIFICATION_LEAD_MINUTES:
+        raise serializers.ValidationError(
+            f"Notification lead time must be between 1 and "
+            f"{MAX_NOTIFICATION_LEAD_MINUTES} minutes."
+        )
+    return f"{match.group(1)}:{minutes}"
+
+
 class UserSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(required=True, allow_blank=False)
 
@@ -73,6 +91,13 @@ class UserSerializer(serializers.ModelSerializer):
 
     def validate_email(self, value):
         normalized = _normalize_email(value)
+        if (
+            self.instance is not None
+            and normalized.casefold() != self.instance.email.casefold()
+        ):
+            raise serializers.ValidationError(
+                "Email changes require a dedicated re-verification flow."
+            )
         duplicate = User.objects.filter(email__iexact=normalized)
         if self.instance is not None:
             duplicate = duplicate.exclude(pk=self.instance.pk)
@@ -310,6 +335,9 @@ class CategorySerializer(serializers.ModelSerializer):
             )
         return "#" + candidate.lstrip("#").lower()
 
+    def validate_notificationPreference(self, value):
+        return _validate_notification_preference(value)
+
 
 class TodoEntrySerializer(serializers.ModelSerializer):
     id = serializers.UUIDField(required=False)
@@ -341,6 +369,7 @@ class TodoEntrySerializer(serializers.ModelSerializer):
         allow_blank=True,
         allow_null=True,
     )
+    scheduled_not_before = serializers.DateTimeField(required=False, allow_null=True)
     planned_duration = serializers.IntegerField(
         min_value=0,
         max_value=MAX_PLANNED_DURATION_MINUTES,
@@ -359,6 +388,12 @@ class TodoEntrySerializer(serializers.ModelSerializer):
         max_length=7,
     )
     sort_order = serializers.IntegerField(min_value=-1_000_000, max_value=1_000_000, required=False)
+    split_original_duration = serializers.IntegerField(
+        min_value=0,
+        max_value=MAX_PLANNED_DURATION_MINUTES,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = TodoEntry
@@ -370,6 +405,7 @@ class TodoEntrySerializer(serializers.ModelSerializer):
             "due_time",
             "do_date",
             "planned_start_time",
+            "scheduled_not_before",
             "planned_duration",
             "descriptive_deadline",
             "category",
@@ -387,6 +423,8 @@ class TodoEntrySerializer(serializers.ModelSerializer):
             "recurrence_frequency",
             "recurrence_weekdays",
             "recurrence_series_id",
+            "split_parent_id",
+            "split_original_duration",
             "owner",
             "created_at",
             "updated_at",
@@ -421,6 +459,7 @@ class TodoEntrySerializer(serializers.ModelSerializer):
 
     def validate_subtasks(self, value):
         normalized = []
+        seen_ids = set()
         for subtask in value:
             if not isinstance(subtask, dict):
                 raise serializers.ValidationError("Every subtask must be an object.")
@@ -429,6 +468,8 @@ class TodoEntrySerializer(serializers.ModelSerializer):
             completed = subtask.get("completed", subtask.get("is_completed", False))
             if not isinstance(subtask_id, str) or not 1 <= len(subtask_id) <= 100:
                 raise serializers.ValidationError("Every subtask requires a valid id.")
+            if subtask_id in seen_ids:
+                raise serializers.ValidationError("Subtask ids must be unique within a task.")
             if not isinstance(title, str) or not 1 <= len(title.strip()) <= MAX_SUBTASK_TITLE_LENGTH:
                 raise serializers.ValidationError(
                     f"Subtask titles must contain 1 to {MAX_SUBTASK_TITLE_LENGTH} characters."
@@ -438,7 +479,11 @@ class TodoEntrySerializer(serializers.ModelSerializer):
             normalized.append(
                 {"id": subtask_id, "title": title.strip(), "completed": completed}
             )
+            seen_ids.add(subtask_id)
         return normalized
+
+    def validate_notificationPreference(self, value):
+        return _validate_notification_preference(value)
 
     def validate_recurrence_weekdays(self, value):
         if len(set(value)) != len(value):

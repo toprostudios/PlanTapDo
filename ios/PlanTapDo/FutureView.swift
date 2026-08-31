@@ -6,8 +6,30 @@ struct FutureView: View {
     @State private var selectedTodo: TodoEntry?
     @State private var showingTaskComposer = false
 
-    private var futureTodos: [TodoEntry] {
-        viewModel.todos(on: viewModel.selectedFutureDate)
+    private var activeFutureTodos: [TodoEntry] {
+        todos(on: viewModel.selectedFutureDate, with: { $0.status != .completed })
+    }
+
+    private var completedFutureTodos: [TodoEntry] {
+        guard viewModel.showCompletedTasks else { return [] }
+        return todos(on: viewModel.selectedFutureDate, with: { $0.status == .completed })
+    }
+
+    private func todos(on date: Date, with statusMatches: (TodoEntry) -> Bool) -> [TodoEntry] {
+        viewModel.todos.filter {
+            Calendar.current.isDate($0.doDate, inSameDayAs: date)
+                && statusMatches($0)
+                && $0.status != .archived
+                && $0.status != .skipped
+                && viewModel.shouldDisplayInList($0)
+        }
+        .sorted {
+            let leftTime = $0.plannedStartTime ?? "23:59"
+            let rightTime = $1.plannedStartTime ?? "23:59"
+            return leftTime == rightTime
+                ? $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                : leftTime < rightTime
+        }
     }
 
     private var weekDays: [Date] {
@@ -23,6 +45,19 @@ struct FutureView: View {
     private func category(for categoryId: UUID?) -> Category? {
         guard let categoryId else { return nil }
         return viewModel.categories.first { $0.id == categoryId }
+    }
+
+    /// A week can cross a month boundary, so show every month represented in
+    /// the strip rather than making the selected day the only point of context.
+    private var weekMonthTitle: String {
+        var titles: [String] = []
+        for day in weekDays {
+            let title = day.formatted(.dateTime.month(.wide).year())
+            if !titles.contains(title) {
+                titles.append(title)
+            }
+        }
+        return titles.joined(separator: " – ")
     }
 
     var body: some View {
@@ -45,7 +80,7 @@ struct FutureView: View {
                         viewModel: viewModel,
                         date: viewModel.selectedFutureDate,
                         onOpenTask: { selectedTodo = $0 },
-                        showsTodayBadge: false
+                        showsTodayBadge: true
                     )
                 }
                 .padding(.top, 4)
@@ -95,67 +130,82 @@ struct FutureView: View {
     }
 
     private var weekNavigator: some View {
-        HStack(spacing: 6) {
-            Button {
-                AppHaptics.selection()
-                viewModel.currentWeekOffset -= 1
-                if let newDate = Calendar.current.date(byAdding: .day, value: -7, to: viewModel.selectedFutureDate) {
-                    viewModel.selectedFutureDate = newDate
-                }
-            } label: {
-                Image(systemName: "chevron.left")
-                    .font(.caption.weight(.bold))
-                    .frame(width: 28, height: 44)
-                    .foregroundStyle(.indigo)
-            }
-            .accessibilityLabel("Previous week")
+        VStack(spacing: 6) {
+            Text(weekMonthTitle)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
 
-            HStack(spacing: 4) {
-                ForEach(weekDays, id: \.self) { day in
-                    let isSelected = Calendar.current.isDate(day, inSameDayAs: viewModel.selectedFutureDate)
-                    Button {
-                        AppHaptics.selection()
-                        viewModel.selectedFutureDate = day
-                    } label: {
-                        VStack(spacing: 2) {
-                            Text(day.formatted(.dateTime.weekday(.narrow)))
-                                .font(.caption2.weight(.bold))
-                            Text(day.formatted(.dateTime.day()))
-                                .font(.subheadline.weight(.heavy))
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(isSelected ? Color.indigo : Color.secondary.opacity(0.12))
-                        )
-                        .foregroundStyle(isSelected ? Color.white : Color.primary)
+            HStack(spacing: 6) {
+                Button {
+                    AppHaptics.selection()
+                    viewModel.currentWeekOffset -= 1
+                    if let newDate = Calendar.current.date(byAdding: .day, value: -7, to: viewModel.selectedFutureDate) {
+                        viewModel.selectedFutureDate = newDate
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(day.formatted(date: .complete, time: .omitted))
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.caption.weight(.bold))
+                        .frame(width: 28, height: 44)
+                        .foregroundStyle(.indigo)
                 }
-            }
-            .frame(maxWidth: .infinity)
+                .accessibilityLabel("Previous week")
 
-            Button {
-                AppHaptics.selection()
-                viewModel.currentWeekOffset += 1
-                if let newDate = Calendar.current.date(byAdding: .day, value: 7, to: viewModel.selectedFutureDate) {
-                    viewModel.selectedFutureDate = newDate
+                HStack(spacing: 4) {
+                    ForEach(weekDays, id: \.self) { day in
+                        let isSelected = Calendar.current.isDate(day, inSameDayAs: viewModel.selectedFutureDate)
+                        let isToday = Calendar.current.isDateInToday(day)
+                        Button {
+                            AppHaptics.selection()
+                            viewModel.selectedFutureDate = day
+                        } label: {
+                            VStack(spacing: 2) {
+                                Text(isToday ? "T" : day.formatted(.dateTime.weekday(.narrow)))
+                                    .font(.caption2.weight(.bold))
+                                Text(day.formatted(.dateTime.day()))
+                                    .font(.subheadline.weight(.heavy))
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(
+                                        isSelected ? Color.indigo
+                                            : (isToday ? Color.green : Color.secondary.opacity(0.12))
+                                    )
+                            )
+                            .foregroundStyle(isSelected || isToday ? Color.white : Color.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(
+                            isToday
+                                ? "Today, \(day.formatted(date: .complete, time: .omitted))"
+                                : day.formatted(date: .complete, time: .omitted)
+                        )
+                    }
                 }
-            } label: {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.bold))
-                    .frame(width: 28, height: 44)
-                    .foregroundStyle(.indigo)
+                .frame(maxWidth: .infinity)
+
+                Button {
+                    AppHaptics.selection()
+                    viewModel.currentWeekOffset += 1
+                    if let newDate = Calendar.current.date(byAdding: .day, value: 7, to: viewModel.selectedFutureDate) {
+                        viewModel.selectedFutureDate = newDate
+                    }
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .frame(width: 28, height: 44)
+                        .foregroundStyle(.indigo)
+                }
+                .accessibilityLabel("Next week")
             }
-            .accessibilityLabel("Next week")
         }
         .padding(.horizontal)
     }
 
     private var listContent: some View {
         LazyVStack(spacing: 6) {
-            ForEach(futureTodos) { todo in
+            ForEach(activeFutureTodos) { todo in
                 TaskListRowView(
                     todo: todo,
                     category: category(for: todo.categoryId),
@@ -164,13 +214,20 @@ struct FutureView: View {
                 )
             }
 
-            if futureTodos.isEmpty {
+            if activeFutureTodos.isEmpty {
                 VStack(spacing: 8) {
                     Text("🎉 No tasks scheduled")
                         .font(.headline)
                 }
                 .padding(40)
             }
+
+            CompletedTaskListSection(
+                todos: completedFutureTodos,
+                viewModel: viewModel,
+                categoryFor: category,
+                onOpen: { selectedTodo = $0 }
+            )
         }
         .padding(.bottom, 20)
     }

@@ -80,6 +80,33 @@ final class AppStateStoreTests: XCTestCase {
         XCTAssertEqual(directoryValues.isExcludedFromBackup, true)
     }
 
+    func testStateStoreRecoversFromBackupWhenPrimaryFileIsDamaged() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fileURL = directory.appendingPathComponent("app-state.json")
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let account = UserAccount(
+            id: UUID(),
+            name: "Recovered",
+            email: "local@plantapdo.app",
+            tier: "Personal",
+            isCloudSynced: false
+        )
+        let expected = PersistedAppState(
+            accounts: [account],
+            activeAccountID: account.id,
+            workspaces: [account.id: .empty]
+        )
+        let store = AppStateStore(fileURL: fileURL)
+        try store.save(expected)
+        try Data("not-json".utf8).write(to: fileURL, options: .atomic)
+
+        let recovered = try XCTUnwrap(store.load())
+
+        XCTAssertEqual(recovered.activeAccountID, account.id)
+        XCTAssertEqual(recovered.accounts, [account])
+    }
+
     func testAuthTokensCanBeEncodedForKeychainStorage() throws {
         let tokens = APIClient.AuthTokens(access: "access", refresh: "refresh")
         let data = try JSONEncoder().encode(tokens)
@@ -131,6 +158,103 @@ final class AppStateStoreTests: XCTestCase {
         XCTAssertTrue(workspace.focusBlocks.isEmpty)
         XCTAssertFalse(workspace.needsCloudSync)
         XCTAssertTrue(workspace.deletedTodoIDs.isEmpty)
+    }
+
+    func testUnknownOrExcessiveNotificationPreferencesDecodeAsOff() throws {
+        for encoded in [#""unexpected:5""#, #""before:10081""#] {
+            let data = try XCTUnwrap(encoded.data(using: .utf8))
+            let preference = try JSONDecoder().decode(
+                NotificationPreference.self,
+                from: data
+            )
+            XCTAssertEqual(preference, .none)
+        }
+    }
+
+    func testNotificationPlannerKeepsTheNearestSixtyFourReminders() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 8))
+        )
+        let todos = try (1...70).map { offset -> TodoEntry in
+            let day = try XCTUnwrap(calendar.date(byAdding: .day, value: offset, to: now))
+            let id = try XCTUnwrap(
+                UUID(uuidString: String(format: "00000000-0000-4000-8000-%012x", offset))
+            )
+            return TodoEntry(
+                id: id,
+                title: "Reminder \(offset)",
+                description: nil,
+                doDate: day,
+                dueDate: nil,
+                dueTime: nil,
+                descriptiveDeadline: nil,
+                plannedStartTime: "09:00",
+                plannedDuration: 1_800,
+                categoryId: nil,
+                status: .pending,
+                priority: nil,
+                location: nil,
+                reminder: nil,
+                notificationPreference: .atTime,
+                labels: nil,
+                timeSessions: nil,
+                subtasks: nil,
+                assigneeId: nil
+            )
+        }
+
+        let planned = NotificationSchedulePlanner.plan(
+            todos: Array(todos.reversed()),
+            categories: [],
+            now: now
+        )
+
+        XCTAssertEqual(
+            planned.count,
+            NotificationSchedulePlanner.maximumPendingNotifications
+        )
+        XCTAssertEqual(planned.first?.title, "Reminder 1")
+        XCTAssertEqual(planned.last?.title, "Reminder 64")
+    }
+
+    func testNotificationPlannerToleratesDuplicateCategoryIDs() throws {
+        let calendar = Calendar(identifier: .gregorian)
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 1, hour: 8))
+        )
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: now))
+        let categoryID = UUID()
+        let categories = [
+            Category(
+                id: categoryID,
+                name: "First",
+                colorHex: "7C6FF7",
+                icon: nil,
+                notes: nil,
+                notificationPreference: .atTime
+            ),
+            Category(
+                id: categoryID,
+                name: "Duplicate",
+                colorHex: "60A5FA",
+                icon: nil,
+                notes: nil,
+                notificationPreference: .none
+            ),
+        ]
+        var todo = makeTodo(title: "Inherited reminder", plannedStartTime: "09:00")
+        todo.doDate = tomorrow
+        todo.categoryId = categoryID
+
+        let planned = NotificationSchedulePlanner.plan(
+            todos: [todo],
+            categories: categories,
+            now: now
+        )
+
+        XCTAssertEqual(planned.count, 1)
+        XCTAssertEqual(planned.first?.title, todo.title)
     }
 
     func testStartingScheduledTaskCreatesOnlyActualSessionHistory() throws {
@@ -227,7 +351,106 @@ final class AppStateStoreTests: XCTestCase {
         XCTAssertEqual(second.plannedStartTime, "08:30")
     }
 
-    func testCalendarOverlapLayoutUsesStableLanesForTransitiveCluster() {
+    func testOverdueTaskSplitsBeforeOffTimeThenMovesWholeTaskWhenTooLittleTimeRemains() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar.current
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 20))
+        )
+        let later = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 20, minute: 50))
+        )
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: now))
+
+        viewModel.setOffTime(enabled: true, startMinutes: 21 * 60, endMinutes: 7 * 60)
+        viewModel.createTodo(
+            title: "Hour of work",
+            doDate: now,
+            plannedStartTime: "19:00",
+            plannedDuration: 3_600
+        )
+
+        viewModel.pushOverdueTasks(at: now)
+
+        let todayPiece = try XCTUnwrap(viewModel.todos.first { $0.title == "Hour of work" })
+        let continuation = try XCTUnwrap(viewModel.todos.first { $0.splitParentID == todayPiece.id })
+        XCTAssertEqual(todayPiece.plannedStartTime, "20:05")
+        XCTAssertEqual(todayPiece.plannedDuration, 55 * 60)
+        XCTAssertTrue(calendar.isDate(continuation.doDate, inSameDayAs: tomorrow))
+        XCTAssertEqual(continuation.plannedDuration, 5 * 60)
+
+        viewModel.pushOverdueTasks(at: later)
+
+        let wholeTask = try XCTUnwrap(viewModel.todos.first { $0.title == "Hour of work" })
+        XCTAssertTrue(calendar.isDate(wholeTask.doDate, inSameDayAs: tomorrow))
+        XCTAssertEqual(wholeTask.plannedStartTime, "07:00")
+        XCTAssertEqual(wholeTask.plannedDuration, 60 * 60)
+        XCTAssertNil(wholeTask.splitOriginalDuration)
+        XCTAssertFalse(viewModel.todos.contains { $0.splitParentID == wholeTask.id })
+    }
+
+    func testPushedRecurringTaskKeepsTheNextDaysOccurrence() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar.current
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 21, minute: 50))
+        )
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: now))
+
+        viewModel.createTodo(
+            title: "Work out",
+            doDate: now,
+            plannedStartTime: "20:00",
+            plannedDuration: 1_800,
+            recurrenceFrequency: .daily
+        )
+
+        viewModel.pushOverdueTasks(at: now)
+
+        let tomorrowWorkouts = viewModel.todos.filter {
+            $0.title == "Work out" && calendar.isDate($0.doDate, inSameDayAs: tomorrow)
+        }
+        XCTAssertEqual(tomorrowWorkouts.count, 2)
+        XCTAssertEqual(Set(tomorrowWorkouts.compactMap(\.plannedStartTime)), Set(["07:00", "20:00"]))
+    }
+
+    func testUntimedTasksFillGapsWithoutMovingTimedTasks() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar.current
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 9, minute: 10))
+        )
+
+        viewModel.createTodo(
+            title: "Appointment",
+            doDate: now,
+            plannedStartTime: "09:15",
+            plannedDuration: 1_800
+        )
+        viewModel.createTodo(
+            title: "Clean room",
+            doDate: now,
+            plannedStartTime: nil,
+            plannedDuration: 900
+        )
+
+        viewModel.pushOverdueTasks(at: now)
+
+        let appointment = try XCTUnwrap(viewModel.todos.first { $0.title == "Appointment" })
+        let storedFlexibleTask = try XCTUnwrap(viewModel.todos.first { $0.title == "Clean room" })
+        let displayedFlexibleTask = try XCTUnwrap(
+            viewModel.calendarTodos(on: now, at: now).first { $0.title == "Clean room" }
+        )
+
+        XCTAssertEqual(appointment.plannedStartTime, "09:15")
+        XCTAssertNil(storedFlexibleTask.plannedStartTime)
+        XCTAssertEqual(displayedFlexibleTask.plannedStartTime, "09:45")
+    }
+
+    func testCalendarSequentialLayoutStacksTransitiveOverlaps() {
         let first = makeTodo(
             title: "First",
             plannedStartTime: "09:00",
@@ -244,13 +467,81 @@ final class AppStateStoreTests: XCTestCase {
             plannedDuration: 3_600
         )
 
-        let layout = CalendarOverlapLayout.compute(for: [first, middle, last])
+        let layout = CalendarSequentialLayout.compute(for: [first, middle, last])
 
-        XCTAssertEqual(layout[first.id]?.totalCols, 2)
-        XCTAssertEqual(layout[middle.id]?.totalCols, 2)
-        XCTAssertEqual(layout[last.id]?.totalCols, 2)
-        XCTAssertEqual(layout[first.id]?.colIndex, layout[last.id]?.colIndex)
-        XCTAssertNotEqual(layout[first.id]?.colIndex, layout[middle.id]?.colIndex)
+        XCTAssertEqual(layout[first.id], 9 * 60)
+        XCTAssertEqual(layout[middle.id], 10 * 60)
+        XCTAssertEqual(layout[last.id], 11 * 60)
+    }
+
+    func testCalendarSequentialLayoutUsesMinimumDisplayDurationForShortTasks() {
+        let first = makeTodo(
+            title: "First short task",
+            plannedStartTime: "09:00",
+            plannedDuration: 5 * 60
+        )
+        let second = makeTodo(
+            title: "Second short task",
+            plannedStartTime: "09:10",
+            plannedDuration: 5 * 60
+        )
+
+        let layout = CalendarSequentialLayout.compute(for: [first, second])
+
+        XCTAssertEqual(layout[first.id], 9 * 60)
+        XCTAssertEqual(layout[second.id], 9 * 60 + 15)
+    }
+
+    func testReflowRestoresTaskToItsOriginalPlannedTimeAfterEarlierTasksFinish() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar(identifier: .gregorian)
+        let day = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 30, hour: 15))
+        )
+
+        for hour in 13...16 {
+            viewModel.createTodo(
+                title: "Task \(hour)",
+                doDate: day,
+                plannedStartTime: String(format: "%02d:00", hour),
+                plannedDuration: 60 * 60
+            )
+        }
+
+        viewModel.pushOverdueTasks(at: day)
+        XCTAssertEqual(
+            viewModel.todos.first { $0.title == "Task 16" }?.plannedStartTime,
+            "18:05"
+        )
+
+        for index in viewModel.todos.indices where viewModel.todos[index].title != "Task 16" {
+            viewModel.todos[index].status = .completed
+        }
+        viewModel.pushOverdueTasks(at: day)
+
+        XCTAssertEqual(
+            viewModel.todos.first { $0.title == "Task 16" }?.plannedStartTime,
+            "16:00"
+        )
+    }
+
+    func testDraggingLaterTaskEarlierShiftsTasksIntoScheduledStartTimes() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let day = Date(timeIntervalSince1970: 1_700_000_000)
+
+        viewModel.createTodo(title: "Morning", doDate: day, plannedStartTime: "10:00", plannedDuration: 7_200)
+        viewModel.createTodo(title: "Afternoon", doDate: day, plannedStartTime: "13:00", plannedDuration: 3_600)
+        viewModel.createTodo(title: "Evening", doDate: day, plannedStartTime: "17:00", plannedDuration: 3_600)
+
+        var moved = try XCTUnwrap(viewModel.todos.first { $0.title == "Evening" })
+        moved.plannedStartTime = "10:00"
+        viewModel.updateTodo(moved)
+
+        XCTAssertEqual(viewModel.todos.first { $0.title == "Evening" }?.plannedStartTime, "10:00")
+        XCTAssertEqual(viewModel.todos.first { $0.title == "Morning" }?.plannedStartTime, "13:00")
+        XCTAssertEqual(viewModel.todos.first { $0.title == "Afternoon" }?.plannedStartTime, "17:00")
     }
 
     func testServerValidationErrorsAreReadable() throws {
@@ -356,7 +647,9 @@ final class AppStateStoreTests: XCTestCase {
         let (viewModel, directory) = makeViewModel()
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
 
-        viewModel.addCategory(name: "Work", colorHex: "7C6FF7", icon: "💼")
+        XCTAssertNotNil(
+            viewModel.addCategory(name: "Work", colorHex: "7C6FF7", icon: "💼")
+        )
         let category = try XCTUnwrap(viewModel.categories.first)
 
         viewModel.createTodo(
@@ -407,6 +700,75 @@ final class AppStateStoreTests: XCTestCase {
         )
 
         XCTAssertNoThrow(try JSONEncoder().encode(state))
+    }
+
+    func testTrackedWorkStaysOutOfListAndRequiresFifteenMinutesForCalendar() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let todoID = UUID()
+        let todo = TodoEntry(
+            id: todoID, title: "Quick task", description: nil,
+            doDate: start, dueDate: nil, dueTime: nil, descriptiveDeadline: nil,
+            plannedStartTime: "10:00", plannedDuration: 1_800, categoryId: nil,
+            status: .completed, priority: nil, location: nil, reminder: nil,
+            labels: nil,
+            timeSessions: [TimeSession(id: UUID(), todoId: todoID, start: start,
+                                       end: start.addingTimeInterval(60), duration: 60)],
+            subtasks: nil, assigneeId: nil
+        )
+        viewModel.todos = [todo]
+
+        XCTAssertTrue(viewModel.todos(on: start).isEmpty)
+        XCTAssertFalse(viewModel.hasCalendarWorkRecord(todo))
+
+        let unstarted = TodoEntry(
+            id: UUID(), title: "Unstarted task", description: nil,
+            doDate: start, dueDate: nil, dueTime: nil, descriptiveDeadline: nil,
+            plannedStartTime: "10:00", plannedDuration: 1_800, categoryId: nil,
+            status: .completed, priority: nil, location: nil, reminder: nil,
+            labels: nil, timeSessions: nil, subtasks: nil, assigneeId: nil
+        )
+        viewModel.todos.append(unstarted)
+        XCTAssertFalse(viewModel.todos(on: start).contains { $0.id == unstarted.id })
+    }
+
+    func testCalendarHistoryUsesTimerSessionsWithoutCreatingContinuationTodos() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let todo = makeTodo(title: "Write outline", plannedStartTime: "09:00")
+        let session = TimeSession(
+            id: UUID(), todoId: todo.id, start: start,
+            end: start.addingTimeInterval(15 * 60), duration: 15 * 60
+        )
+        var trackedTodo = todo
+        trackedTodo.timeSessions = [session]
+        viewModel.todos = [trackedTodo]
+
+        let calendarTodos = viewModel.calendarTodos(on: start, at: start.addingTimeInterval(15 * 60))
+        XCTAssertEqual(viewModel.todos.count, 1)
+        XCTAssertEqual(calendarTodos.map(\.title), ["Write outline"])
+        XCTAssertEqual(calendarTodos.first?.plannedDuration, 15 * 60)
+        XCTAssertEqual(calendarTodos.first?.id, session.id)
+    }
+
+    func testCalendarHistoryPreservesAnHourLongRecordedDuration() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        let todo = makeTodo(title: "Deep work", plannedStartTime: "09:00")
+        let session = TimeSession(
+            id: UUID(), todoId: todo.id, start: start,
+            end: start.addingTimeInterval(60 * 60), duration: 60 * 60
+        )
+        var trackedTodo = todo
+        trackedTodo.timeSessions = [session]
+        viewModel.todos = [trackedTodo]
+
+        let calendarTodos = viewModel.calendarTodos(on: start, at: start.addingTimeInterval(60 * 60))
+
+        XCTAssertEqual(calendarTodos.first?.plannedDuration, 60 * 60)
     }
 
     private func makeTodo(

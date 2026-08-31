@@ -499,16 +499,23 @@ final class APIClient {
             .mapError { $0 as Error }
             .tryMap(Self.validatedData)
             .decode(type: RefreshResponse.self, decoder: jsonDecoder)
-            .map { response in
-                AuthTokens(
+            .tryMap { [weak self] response in
+                let refreshedTokens = AuthTokens(
                     access: response.access,
                     refresh: response.refresh ?? currentTokens.refresh
                 )
+                guard self?.replaceAuthTokens(
+                    refreshedTokens,
+                    replacingRefreshToken: currentTokens.refresh
+                ) == true else {
+                    // Logout or an account switch happened while the network
+                    // request was in flight. Never let the stale response
+                    // restore credentials for the previous session.
+                    throw APIError.sessionChanged
+                }
+                return refreshedTokens
             }
             .handleEvents(
-                receiveOutput: { [weak self] tokens in
-                    self?.setAuthTokens(tokens)
-                },
                 receiveCompletion: { [weak self] completion in
                     self?.finishRefresh(completion: completion)
                 },
@@ -535,6 +542,21 @@ final class APIClient {
         sessionLock.lock()
         inFlightRefresh = nil
         sessionLock.unlock()
+    }
+
+    private func replaceAuthTokens(
+        _ refreshedTokens: AuthTokens,
+        replacingRefreshToken expectedRefreshToken: String
+    ) -> Bool {
+        sessionLock.lock()
+        guard tokens?.refresh == expectedRefreshToken else {
+            sessionLock.unlock()
+            return false
+        }
+        tokens = refreshedTokens
+        sessionLock.unlock()
+        onTokensChanged?(refreshedTokens)
+        return true
     }
 
     private func sessionSnapshot() -> AuthTokens? {
@@ -642,6 +664,10 @@ struct APIError: LocalizedError {
     static let configuration = APIError(
         statusCode: 0,
         message: "Cloud sync is not configured in this build."
+    )
+    static let sessionChanged = APIError(
+        statusCode: 0,
+        message: "The account session changed while the request was in progress."
     )
 
     var errorDescription: String? {

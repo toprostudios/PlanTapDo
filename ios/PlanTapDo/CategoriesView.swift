@@ -9,8 +9,22 @@ struct CategoriesView: View {
     @State private var selectedTodo: TodoEntry?
     @AppStorage("tasksHubShowsAllTasks") private var showsAllTasks = true
 
-    private var visibleTasks: [TodoEntry] {
-        viewModel.todos.filter(viewModel.shouldDisplay).sorted { left, right in
+    private var activeTasks: [TodoEntry] {
+        sortedTasks(viewModel.todos.filter {
+            $0.status != .completed && $0.status != .archived && $0.status != .skipped
+                && viewModel.shouldDisplayInList($0)
+        })
+    }
+
+    private var completedTasks: [TodoEntry] {
+        guard viewModel.showCompletedTasks else { return [] }
+        return sortedTasks(viewModel.todos.filter {
+            $0.status == .completed && viewModel.shouldDisplayInList($0)
+        })
+    }
+
+    private func sortedTasks(_ tasks: [TodoEntry]) -> [TodoEntry] {
+        tasks.sorted { left, right in
             if (left.categoryId == nil) != (right.categoryId == nil) { return left.categoryId == nil }
             if !Calendar.current.isDate(left.doDate, inSameDayAs: right.doDate) { return left.doDate < right.doDate }
             let leftTime = left.plannedStartTime ?? "00:00"
@@ -62,7 +76,9 @@ struct CategoriesView: View {
                         CategoryRow(
                             category: category,
                             taskCount: viewModel.todos.filter {
-                                $0.categoryId == category.id && viewModel.shouldDisplay($0)
+                            $0.categoryId == category.id && $0.status != .completed
+                                && $0.status != .archived && $0.status != .skipped
+                                && viewModel.shouldDisplayInList($0)
                             }.count
                         )
                     }
@@ -110,23 +126,34 @@ struct CategoriesView: View {
                 .simultaneousGesture(TapGesture().onEnded { AppHaptics.selection() })
 
                 if showsAllTasks {
-                    if visibleTasks.isEmpty {
+                    if activeTasks.isEmpty {
                         Text("No tasks yet")
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 12)
                     } else {
-                        ForEach(visibleTasks) { todo in
+                        ForEach(activeTasks) { todo in
                             TaskListRowView(
                                 todo: todo,
                                 category: category(for: todo.categoryId),
                                 viewModel: viewModel,
-                                onOpen: { selectedTodo = todo }
+                                onOpen: { selectedTodo = todo },
+                                usesOuterPadding: false
                             )
-                            .padding(.horizontal)
+                            .padding(.horizontal, 16)
                         }
                     }
+
+                    CompletedTaskListSection(
+                        todos: completedTasks,
+                        viewModel: viewModel,
+                        categoryFor: category,
+                        onOpen: { selectedTodo = $0 },
+                        usesOuterPadding: false
+                    )
+                    .padding(.horizontal, 16)
                 }
             }
+            .frame(maxWidth: .infinity)
             .padding(.bottom, 24)
         }
         .sheet(isPresented: $showingAddCategory) {
@@ -177,12 +204,30 @@ private struct CategoryRow: View {
                 .rotationEffect(.degrees(-90))
         }
         .padding(14)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color.secondary.opacity(0.1)))
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: category.colorHex).opacity(0.15),
+                            Color(uiColor: .secondarySystemGroupedBackground).opacity(0.92)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.20), lineWidth: 1)
+        )
         .overlay(alignment: .leading) {
             RoundedRectangle(cornerRadius: 3)
                 .fill(Color(hex: category.colorHex))
                 .frame(width: 5)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .shadow(color: Color(hex: category.colorHex).opacity(0.12), radius: 10, y: 4)
     }
 }
 
@@ -195,25 +240,45 @@ struct CategoryDetailView: View {
     @State private var showingEditCategory = false
     @State private var showingDeleteConfirmation = false
     @State private var selectedTodo: TodoEntry?
+    @State private var completedTasksExpanded = false
 
     private var category: Category? {
         viewModel.categories.first { $0.id == categoryId }
     }
 
-    private var categoryTodos: [TodoEntry] {
+    private var activeCategoryTodos: [TodoEntry] {
         viewModel.todos
-            .filter { $0.categoryId == categoryId && viewModel.shouldDisplay($0) }
-            .sorted {
-                if !Calendar.current.isDate($0.doDate, inSameDayAs: $1.doDate) {
-                    return $0.doDate < $1.doDate
-                }
-                let leftTime = $0.plannedStartTime ?? "23:59"
-                let rightTime = $1.plannedStartTime ?? "23:59"
-                if leftTime == rightTime {
-                    return $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-                }
-                return leftTime < rightTime
+            .filter {
+                $0.categoryId == categoryId
+                    && $0.status != .completed
+                    && $0.status != .archived
+                    && $0.status != .skipped
+                    && viewModel.shouldDisplayInList($0)
             }
+            .sorted(by: taskSort)
+    }
+
+    private var completedCategoryTodos: [TodoEntry] {
+        guard viewModel.showCompletedTasks else { return [] }
+        return viewModel.todos
+            .filter {
+                $0.categoryId == categoryId
+                    && $0.status == .completed
+                    && viewModel.shouldDisplayInList($0)
+            }
+            .sorted(by: taskSort)
+    }
+
+    private func taskSort(_ left: TodoEntry, _ right: TodoEntry) -> Bool {
+        if !Calendar.current.isDate(left.doDate, inSameDayAs: right.doDate) {
+            return left.doDate < right.doDate
+        }
+        let leftTime = left.plannedStartTime ?? "23:59"
+        let rightTime = right.plannedStartTime ?? "23:59"
+        if leftTime == rightTime {
+            return left.title.localizedCaseInsensitiveCompare(right.title) == .orderedAscending
+        }
+        return leftTime < rightTime
     }
 
     var body: some View {
@@ -229,7 +294,7 @@ struct CategoryDetailView: View {
             }
 
             Section("Tasks") {
-                ForEach(categoryTodos) { todo in
+                ForEach(activeCategoryTodos) { todo in
                     TaskListRowView(
                         todo: todo,
                         category: category,
@@ -242,7 +307,7 @@ struct CategoryDetailView: View {
                     .listRowSeparator(.hidden)
                 }
 
-                if categoryTodos.isEmpty {
+                if activeCategoryTodos.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "checkmark.circle")
                             .font(.largeTitle)
@@ -254,6 +319,30 @@ struct CategoryDetailView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 40)
                     .listRowBackground(Color.clear)
+                }
+            }
+
+            if !completedCategoryTodos.isEmpty {
+                Section {
+                    DisclosureGroup(
+                        "Completed (\(completedCategoryTodos.count))",
+                        isExpanded: $completedTasksExpanded
+                    ) {
+                        ForEach(completedCategoryTodos) { todo in
+                            TaskListRowView(
+                                todo: todo,
+                                category: category,
+                                viewModel: viewModel,
+                                onOpen: { selectedTodo = todo },
+                                usesOuterPadding: false
+                            )
+                            .listRowInsets(EdgeInsets(top: 5, leading: 0, bottom: 5, trailing: 0))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                        }
+                    }
+                    .font(.subheadline.weight(.bold))
+                    .tint(.green)
                 }
             }
         }
@@ -330,10 +419,11 @@ private struct CategoryTaskComposerView: View {
         NavigationStack {
             Form {
                 Section("Task") {
-                    TextField("Task title", text: $title)
+                    TextField("Task title", text: $title, axis: .vertical)
+                        .lineLimit(1...2)
                         .modernTextInput()
                     TextField("Notes (optional)", text: $description, axis: .vertical)
-                        .lineLimit(2...4)
+                        .lineLimit(1...5)
                         .modernTextInput()
                 }
 
@@ -348,23 +438,29 @@ private struct CategoryTaskComposerView: View {
                 }
 
                 Section("Schedule") {
-                    DatePicker("Day", selection: $scheduledDate, displayedComponents: .date)
+                    RelativeDayWheelPicker(date: $scheduledDate)
                     Toggle("Set a time", isOn: $hasPlannedTime)
 
                     if hasPlannedTime {
-                        DatePicker("Start", selection: $plannedTime, displayedComponents: .hourAndMinute)
-                        Picker("Duration", selection: $durationMinutes) {
-                            ForEach(durationChoices, id: \.self) { minutes in
-                                Text(durationLabel(minutes)).tag(minutes)
-                            }
+                        FiveMinuteTimePicker(date: $plannedTime)
+                    }
+                    Picker("Duration", selection: $durationMinutes) {
+                        Text("Unspecified (5 min estimate)").tag(0)
+                        ForEach(durationChoices, id: \.self) { minutes in
+                            Text(durationLabel(minutes)).tag(minutes)
                         }
-                        .pickerStyle(.wheel)
-                        .frame(height: 118)
-                        .clipped()
-                        Button("Custom duration") {
-                            customDurationText = String(durationMinutes)
-                            showingCustomDuration = true
-                        }
+                    }
+                    .pickerStyle(.wheel)
+                    .frame(height: 118)
+                    .clipped()
+                    Button("Custom duration") {
+                        customDurationText = String(durationMinutes)
+                        showingCustomDuration = true
+                    }
+                    if durationMinutes == 0 {
+                        Text("Unspecified tasks stay in the list and do not appear on the calendar.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -441,8 +537,11 @@ private struct CategoryTaskComposerView: View {
                 ).sorted()
                 : nil
         )
+        AppHaptics.success()
+        viewModel.showTaskAddedFeedback(for: trimmedTitle)
         dismiss()
     }
+
 
     private var durationChoices: [Int] {
         [5, 15, 30] + Array(stride(from: 60, through: 24 * 60, by: 30))
@@ -677,14 +776,23 @@ private struct PremiumUpgradeView: View {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(plan.title).font(.headline)
-                                Text(plan.fallbackPrice).font(.subheadline)
+                                if let price = subscriptionManager.displayPrice(for: plan) {
+                                    Text(price).font(.subheadline)
+                                } else {
+                                    Text("Unavailable")
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                             Spacer()
                             if subscriptionManager.isLoading { ProgressView() }
                         }
                     }
                     .buttonStyle(.borderedProminent)
-                    .disabled(subscriptionManager.isLoading)
+                    .disabled(
+                        subscriptionManager.isLoading
+                            || subscriptionManager.displayPrice(for: plan) == nil
+                    )
                 }
 
                 Button("Restore Purchases") {
