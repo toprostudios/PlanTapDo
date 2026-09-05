@@ -86,18 +86,23 @@ struct SubscriptionOfferView: View {
             Spacer()
             Image(systemName: "sparkles")
                 .font(.system(size: 56, weight: .semibold))
-            Text("Unlock PlanTapDo Premium")
+            Text("Unlock PlanTapDo Advanced")
                 .font(.largeTitle.weight(.bold))
                 .multilineTextAlignment(.center)
-            Text("Create unlimited categories and unlock future Premium features.")
+            Text("Advanced currently unlocks unlimited categories.")
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white.opacity(0.78))
                 .padding(.horizontal, 28)
 
             VStack(alignment: .leading, spacing: 12) {
-                Label("Unlimited tasks and calendar planning", systemImage: "checkmark.circle.fill")
-                Label("Focus timer and weekly reports", systemImage: "checkmark.circle.fill")
-                Label("Your plan, synced across devices", systemImage: "checkmark.circle.fill")
+                Label("Advanced feature", systemImage: "sparkles")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.white.opacity(0.72))
+                Label("Unlimited categories", systemImage: "checkmark.circle.fill")
+                Text("Free plan: \(TodoViewModel.freeCategoryLimit) categories.")
+                Text("Tasks, calendar planning, and timers are free.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.78))
             }
             .font(.subheadline.weight(.medium))
             .padding(18)
@@ -113,25 +118,25 @@ struct SubscriptionOfferView: View {
                     .padding(.horizontal, 28)
             }
 
-            ForEach(SubscriptionManager.PremiumPlan.allCases) { plan in
+            ForEach(SubscriptionManager.AdvancedPlan.allCases) { plan in
                 Button {
                     Task {
                         await subscriptionManager.purchase(plan)
-                        if subscriptionManager.hasPremium { onSubscribed() }
+                        if subscriptionManager.hasAdvanced { onSubscribed() }
                     }
                 } label: {
                     Text("\(plan.title) — \(plan.fallbackPrice)")
                 }
                 .buttonStyle(OnboardingPrimaryButtonStyle())
                 .padding(.horizontal, 24)
-                .disabled(subscriptionManager.isLoading)
+                .disabled(subscriptionManager.isLoading || !subscriptionManager.isAvailable(for: plan))
             }
 
             HStack(spacing: 24) {
                 Button("Restore Purchase") {
                     Task {
                         await subscriptionManager.restorePurchases()
-                        if subscriptionManager.hasPremium { onSubscribed() }
+                        if subscriptionManager.hasAdvanced { onSubscribed() }
                     }
                 }
                 .font(.footnote.weight(.semibold))

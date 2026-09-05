@@ -2,6 +2,7 @@
 import SwiftUI
 import UIKit
 
+@MainActor
 enum AppHaptics {
     static func selection() {
         UISelectionFeedbackGenerator().selectionChanged()
@@ -68,6 +69,7 @@ private struct TactileButtonStyle: ButtonStyle {
     }
 }
 
+@MainActor
 func dismissKeyboard() {
     UIApplication.shared.sendAction(
         #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil
@@ -195,7 +197,7 @@ struct RelativeDayWheelPicker: View {
 
     var body: some View {
         Picker("Day", selection: dayOffset) {
-            ForEach(Array(dayRange), id: \.self) { offset in
+            ForEach(availableOffsets, id: \.self) { offset in
                 Text(label(for: offset)).tag(offset)
             }
         }
@@ -204,15 +206,27 @@ struct RelativeDayWheelPicker: View {
         .clipped()
     }
 
+    private var availableOffsets: [Int] {
+        var offsets = Array(dayRange)
+        let current = currentDayOffset
+        if !dayRange.contains(current) {
+            offsets.append(current)
+            offsets.sort()
+        }
+        return offsets
+    }
+
+    private var currentDayOffset: Int {
+        Calendar.current.dateComponents(
+            [.day],
+            from: Calendar.current.startOfDay(for: Date()),
+            to: Calendar.current.startOfDay(for: date)
+        ).day ?? 0
+    }
+
     private var dayOffset: Binding<Int> {
         Binding(
-            get: {
-                Calendar.current.dateComponents(
-                    [.day],
-                    from: Calendar.current.startOfDay(for: Date()),
-                    to: Calendar.current.startOfDay(for: date)
-                ).day ?? 0
-            },
+            get: { currentDayOffset },
             set: { offset in
                 let calendar = Calendar.current
                 guard let day = calendar.date(byAdding: .day, value: offset, to: Date()) else { return }

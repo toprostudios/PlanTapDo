@@ -288,11 +288,11 @@ final class AppStateStoreTests: XCTestCase {
         let (viewModel, directory) = makeViewModel()
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
 
-        XCTAssertNotNil(viewModel.addCategory(name: "One", colorHex: "7C6FF7", icon: "1", isPremium: false))
-        XCTAssertNotNil(viewModel.addCategory(name: "Two", colorHex: "3ECF8E", icon: "2", isPremium: false))
-        XCTAssertNil(viewModel.addCategory(name: "Three", colorHex: "F5A623", icon: "3", isPremium: false))
+        XCTAssertNotNil(viewModel.addCategory(name: "One", colorHex: "7C6FF7", icon: "1", isAdvanced: false))
+        XCTAssertNotNil(viewModel.addCategory(name: "Two", colorHex: "3ECF8E", icon: "2", isAdvanced: false))
+        XCTAssertNil(viewModel.addCategory(name: "Three", colorHex: "F5A623", icon: "3", isAdvanced: false))
         XCTAssertEqual(viewModel.categories.count, TodoViewModel.freeCategoryLimit)
-        XCTAssertNotNil(viewModel.addCategory(name: "Premium", colorHex: "60A5FA", icon: "4", isPremium: true))
+        XCTAssertNotNil(viewModel.addCategory(name: "Advanced", colorHex: "60A5FA", icon: "4", isAdvanced: true))
     }
 
     func testStartingTaskThatIsNotInWorkspaceDoesNotCreateOrphanTimer() throws {
@@ -390,7 +390,7 @@ final class AppStateStoreTests: XCTestCase {
         XCTAssertFalse(viewModel.todos.contains { $0.splitParentID == wholeTask.id })
     }
 
-    func testPushedRecurringTaskKeepsTheNextDaysOccurrence() throws {
+    func testRecurringTaskDoesNotMoveIntoTheNextDay() throws {
         let (viewModel, directory) = makeViewModel()
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
         let calendar = Calendar.current
@@ -412,8 +412,141 @@ final class AppStateStoreTests: XCTestCase {
         let tomorrowWorkouts = viewModel.todos.filter {
             $0.title == "Work out" && calendar.isDate($0.doDate, inSameDayAs: tomorrow)
         }
-        XCTAssertEqual(tomorrowWorkouts.count, 2)
-        XCTAssertEqual(Set(tomorrowWorkouts.compactMap(\.plannedStartTime)), Set(["07:00", "20:00"]))
+        XCTAssertTrue(tomorrowWorkouts.isEmpty)
+
+        let justAfterMidnight = try XCTUnwrap(
+            calendar.date(byAdding: .minute, value: 1, to: calendar.startOfDay(for: tomorrow))
+        )
+        viewModel.pushOverdueTasks(at: justAfterMidnight)
+
+        let nextDayWorkout = try XCTUnwrap(viewModel.todos.first {
+            $0.title == "Work out" && calendar.isDate($0.doDate, inSameDayAs: tomorrow)
+        })
+        XCTAssertEqual(nextDayWorkout.plannedStartTime, "20:00")
+        XCTAssertEqual(nextDayWorkout.status, .pending)
+        XCTAssertEqual(viewModel.todos.filter {
+            $0.title == "Work out" && calendar.isDate($0.doDate, inSameDayAs: tomorrow)
+        }.count, 1)
+    }
+
+    func testOverdueRecurringTaskMovesForwardUntilMidnight() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        viewModel.setOffTime(enabled: false, startMinutes: 21 * 60, endMinutes: 7 * 60)
+        let calendar = Calendar.current
+        let day = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 18))
+        )
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 21))
+        )
+
+        viewModel.createTodo(
+            title: "Evening workout",
+            doDate: day,
+            plannedStartTime: "18:00",
+            plannedDuration: 60 * 60,
+            recurrenceFrequency: .daily
+        )
+
+        viewModel.pushOverdueTasks(at: now)
+
+        let workout = try XCTUnwrap(viewModel.todos.first { $0.title == "Evening workout" })
+        XCTAssertTrue(calendar.isDate(workout.doDate, inSameDayAs: day))
+        XCTAssertEqual(workout.plannedStartTime, "21:05")
+    }
+
+    func testOverdueRecurringTaskDoesNotMoveIntoOffTime() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar.current
+        let day = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 18))
+        )
+        let offTimeStart = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 21))
+        )
+        viewModel.setOffTime(enabled: true, startMinutes: 21 * 60, endMinutes: 7 * 60)
+
+        viewModel.createTodo(
+            title: "Protected-time workout",
+            doDate: day,
+            plannedStartTime: "18:00",
+            plannedDuration: 30 * 60,
+            recurrenceFrequency: .daily
+        )
+
+        viewModel.pushOverdueTasks(at: offTimeStart)
+
+        let workout = try XCTUnwrap(viewModel.todos.first { $0.title == "Protected-time workout" })
+        XCTAssertEqual(workout.status, .skipped)
+        XCTAssertTrue(calendar.isDate(workout.doDate, inSameDayAs: day))
+        XCTAssertEqual(workout.plannedStartTime, "18:00")
+    }
+
+    func testSchedulerRemovesFutureRecurringArtifactsFromEarlierBuilds() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar(identifier: .gregorian)
+        let today = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 9))
+        )
+        let yesterday = try XCTUnwrap(calendar.date(byAdding: .day, value: -1, to: today))
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: today))
+        let dayAfterTomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 2, to: today))
+        let seriesID = UUID()
+
+        viewModel.todos = [
+            TodoEntry(
+                id: UUID(), title: "Fitness", doDate: yesterday,
+                plannedStartTime: "20:00", plannedDuration: 30 * 60,
+                status: .skipped, recurrenceFrequency: .daily,
+                recurrenceSeriesId: seriesID
+            ),
+            TodoEntry(
+                id: UUID(), title: "Fitness", doDate: tomorrow,
+                plannedStartTime: "20:00", plannedDuration: 30 * 60,
+                recurrenceFrequency: .daily,
+                recurrenceSeriesId: seriesID
+            ),
+            TodoEntry(
+                id: UUID(), title: "Fitness", doDate: dayAfterTomorrow,
+                plannedStartTime: "21:55", plannedDuration: 30 * 60,
+                status: .pending, recurrenceFrequency: .daily,
+                recurrenceSeriesId: seriesID
+            ),
+        ]
+
+        viewModel.pushOverdueTasks(at: today)
+
+        let liveFitnessTasks = viewModel.todos.filter {
+            $0.title == "Fitness" && $0.status == .pending
+        }
+        XCTAssertEqual(liveFitnessTasks.count, 1)
+        XCTAssertTrue(calendar.isDate(liveFitnessTasks[0].doDate, inSameDayAs: today))
+        XCTAssertEqual(liveFitnessTasks[0].plannedStartTime, "20:00")
+    }
+
+    func testRecurringTaskAddedAfterItsTimeStartsOnTheNextApplicableDay() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar(identifier: .gregorian)
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 14))
+        )
+        let tomorrow = try XCTUnwrap(calendar.date(byAdding: .day, value: 1, to: now))
+
+        viewModel.createTodo(
+            title: "Afternoon workout",
+            doDate: now,
+            plannedStartTime: "13:00",
+            recurrenceFrequency: .daily,
+            currentDate: now
+        )
+
+        let workout = try XCTUnwrap(viewModel.todos.first)
+        XCTAssertTrue(calendar.isDate(workout.doDate, inSameDayAs: tomorrow))
+        XCTAssertEqual(workout.plannedStartTime, "13:00")
     }
 
     func testUntimedTasksFillGapsWithoutMovingTimedTasks() throws {
@@ -600,6 +733,86 @@ final class AppStateStoreTests: XCTestCase {
         )
 
         XCTAssertEqual(viewModel.todos.count, 1)
+    }
+
+    func testMonthEndRecurrenceUsesLastValidDayOfShorterMonth() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar(identifier: .gregorian)
+        let start = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 1, day: 31, hour: 9))
+        )
+        let februaryEnd = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 2, day: 28, hour: 9))
+        )
+
+        viewModel.createTodo(
+            title: "Month-end review",
+            doDate: start,
+            recurrenceFrequency: .monthly
+        )
+        let originalID = try XCTUnwrap(viewModel.todos.first?.id)
+        viewModel.pushOverdueTasks(at: februaryEnd)
+
+        XCTAssertEqual(
+            viewModel.todos.filter {
+                calendar.isDate($0.doDate, inSameDayAs: februaryEnd)
+                    && $0.title == "Month-end review"
+                    && $0.id != originalID
+            }.count,
+            1
+        )
+    }
+
+    func testCalendarHistoryOpensItsDurableSourceTodo() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+        var source = makeTodo(title: "Durable source", plannedStartTime: "09:00")
+        source.timeSessions = [
+            TimeSession(
+                id: UUID(), todoId: source.id, start: start,
+                end: start.addingTimeInterval(20 * 60), duration: 20 * 60
+            )
+        ]
+        viewModel.todos = [source]
+        let history = try XCTUnwrap(
+            viewModel.calendarTodos(on: start, at: start.addingTimeInterval(30 * 60))
+                .first { $0.status == .completed }
+        )
+
+        let editable = viewModel.editableTodo(for: history)
+
+        XCTAssertEqual(editable.id, source.id)
+        XCTAssertEqual(editable.title, source.title)
+    }
+
+    func testStartingOffTimeContinuationStartsDurableParent() throws {
+        let (viewModel, directory) = makeViewModel()
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        let calendar = Calendar.current
+        let now = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 24, hour: 20))
+        )
+        viewModel.setOffTime(enabled: true, startMinutes: 21 * 60, endMinutes: 7 * 60)
+        viewModel.createTodo(
+            title: "Split work", doDate: now,
+            plannedStartTime: "19:00", plannedDuration: 60 * 60
+        )
+        viewModel.pushOverdueTasks(at: now)
+        let parent = try XCTUnwrap(viewModel.todos.first { $0.splitOriginalDuration != nil })
+        let continuation = try XCTUnwrap(viewModel.todos.first { $0.splitParentID == parent.id })
+
+        viewModel.startTimer(for: continuation)
+        addTeardownBlock { viewModel.undoLastStart() }
+
+        XCTAssertEqual(viewModel.activeTimerTodoId, parent.id)
+        XCTAssertEqual(viewModel.todos.first { $0.id == parent.id }?.status, .inProgress)
+        XCTAssertFalse(viewModel.todos.contains { $0.id == continuation.id })
+        XCTAssertEqual(
+            viewModel.todos.first { $0.id == parent.id }?.timeSessions?.last?.todoId,
+            parent.id
+        )
     }
 
     func testLegacyCloudAccountIsExcludedFromLocalOnlyVersionOne() throws {

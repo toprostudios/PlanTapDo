@@ -10,8 +10,18 @@ Include the affected endpoint or component, reproduction steps, impact, and any 
 
 Security fixes are applied to the current deployment branch. Older unmaintained deployments should upgrade rather than assume they receive backports.
 
-## Deployment boundary
+## Current v1 boundary
 
-The secure configuration and tests in this repository are one layer of the system. Operators must also follow [backend/DEPLOYMENT.md](backend/DEPLOYMENT.md) for TLS, proxy trust, network isolation, secret storage, rate limiting, monitoring, backups, image scanning, and key rotation.
+The shipping v1 app is local-only: it has no reachable account, cloud-sync, or
+server-hosted task-data flow. Planner state is stored in Application Support
+with complete file protection and excluded from device backups. Advanced
+purchase entitlements are checked locally through StoreKit. See
+[PROJECT_STATUS.md](PROJECT_STATUS.md) for the current release gates.
 
-PlanTapDo's current data-protection boundary uses TLS with certificate and hostname verification in transit, Supabase-managed PostgreSQL encryption at rest, signed per-request tenant context with PostgreSQL RLS, and the deployment provider's encrypted secret/Redis storage. Django data lives in a non-exposed `plantapdo` schema accessed through separate migration and runtime roles; Supabase's Data API is not part of the application and should be disabled. Passwords and MFA recovery codes are one-way Argon2id hashes; TOTP secrets use a separate application encryption key. The iOS state directory is completely file-protected and excluded from device backups. Task content is not end-to-end encrypted, so a principal with authorized plaintext application access can read it; production database, dashboard, backup, and secret access must therefore remain least-privilege, MFA-protected, and audited. See [backend/SUPABASE.md](backend/SUPABASE.md).
+## Future backend boundary
+
+The backend security material applies only if the future cloud-sync prototype
+is deployed. Operators must then follow [backend/DEPLOYMENT.md](backend/DEPLOYMENT.md)
+for TLS, proxy trust, network isolation, secret storage, rate limiting,
+monitoring, backups, image scanning, and key rotation. Its Supabase/RLS, MFA,
+and server-side data protections do not describe the shipping v1 app.

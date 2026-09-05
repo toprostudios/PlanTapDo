@@ -1,5 +1,6 @@
 from datetime import timedelta
 import re
+import uuid
 from unittest import mock
 
 from django.contrib.auth.hashers import identify_hasher
@@ -433,6 +434,47 @@ class AccountAndSyncTests(TestCase):
         self.assertEqual(synced_todo["recurrence_weekdays"], [2, 5])
         self.assertEqual(len(post_res.data["travel_times"]), 1)
         self.assertEqual(post_res.data["travel_times"][0]["duration_minutes"], 20)
+
+    def test_sync_preserves_notification_and_off_time_split_metadata(self):
+        parent_id = "33333333-3333-4333-8333-333333333333"
+        child_id = "44444444-4444-4444-8444-444444444444"
+
+        response = self.client.post(
+            self.sync_url,
+            {
+                "categories": [
+                    {
+                        "id": "55555555-5555-4555-8555-555555555555",
+                        "name": "Reminders",
+                        "notification_preference": "before:15",
+                    }
+                ],
+                "todos": [
+                    {
+                        "id": parent_id,
+                        "title": "Split parent",
+                        "notification_preference": "beforeAndAtTime:10",
+                        "split_original_duration": 60,
+                    },
+                    {
+                        "id": child_id,
+                        "title": "Split continuation",
+                        "split_parent_id": parent_id,
+                        "planned_duration": 15,
+                    },
+                ],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        category = Category.objects.get(pk="55555555-5555-4555-8555-555555555555")
+        parent = TodoEntry.objects.get(pk=parent_id)
+        child = TodoEntry.objects.get(pk=child_id)
+        self.assertEqual(category.notification_preference, "before:15")
+        self.assertEqual(parent.notification_preference, "beforeAndAtTime:10")
+        self.assertEqual(parent.split_original_duration, 60)
+        self.assertEqual(child.split_parent_id, uuid.UUID(parent_id))
 
     def test_sync_rejects_non_object_payload(self):
         response = self.client.post(self.sync_url, [], format="json")

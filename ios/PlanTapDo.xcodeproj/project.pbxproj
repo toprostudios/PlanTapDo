@@ -69,6 +69,8 @@
 		B1000025 /* CredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CredentialStore.swift; sourceTree = "<group>"; };
 		B1000026 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B1000027 /* LocalNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalNotificationManager.swift; sourceTree = "<group>"; };
+		B1000028 /* PlanTapDo.storekit */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = PlanTapDo.storekit; sourceTree = "<group>"; };
+		B1000029 /* APP_STORE_CONNECT_IAP_CHECKLIST.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = APP_STORE_CONNECT_IAP_CHECKLIST.md; sourceTree = "<group>"; };
 		B3000001 /* AppStateStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppStateStoreTests.swift; sourceTree = "<group>"; };
 		B3000002 /* XCTest.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = XCTest.framework; path = System/Library/Frameworks/XCTest.framework; sourceTree = SDKROOT; };
 		C1000001 /* PlanTapDo.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlanTapDo.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -128,6 +130,8 @@
 				B1000024 /* AppStateStore.swift */,
 				B1000025 /* CredentialStore.swift */,
 				B1000027 /* LocalNotificationManager.swift */,
+				B1000028 /* PlanTapDo.storekit */,
+				B1000029 /* APP_STORE_CONNECT_IAP_CHECKLIST.md */,
 				B1000026 /* PrivacyInfo.xcprivacy */,
 				B1000022 /* SubscriptionManager.swift */,
 				B1000023 /* OnboardingView.swift */,
@@ -415,7 +419,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				API_BASE_URL = "http://127.0.0.1:8000/api/";
-				PRIVACY_POLICY_URL = "https://toproindustry.site/privacy";
+				PRIVACY_POLICY_URL = "https://toproindustry.site/plantapdo/privacy";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -426,15 +430,15 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.plantapdo.app;
 				PRODUCT_BUNDLE_PACKAGE_TYPE = APPL;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				SUPPORTED_PLATFORMS = iphoneos;
-				SUPPORT_URL = "https://toproindustry.site/support";
-				TERMS_OF_USE_URL = "https://toproindustry.site/terms";
+				SUPPORT_URL = "https://toproindustry.site/plantapdo/support";
+				TERMS_OF_USE_URL = "https://toproindustry.site/plantapdo/terms";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -443,7 +447,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				API_BASE_URL = "";
-				PRIVACY_POLICY_URL = "https://toproindustry.site/privacy";
+				PRIVACY_POLICY_URL = "https://toproindustry.site/plantapdo/privacy";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -454,15 +458,15 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.plantapdo.app;
 				PRODUCT_BUNDLE_PACKAGE_TYPE = APPL;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				SUPPORTED_PLATFORMS = iphoneos;
-				SUPPORT_URL = "https://toproindustry.site/support";
-				TERMS_OF_USE_URL = "https://toproindustry.site/terms";
+				SUPPORT_URL = "https://toproindustry.site/plantapdo/support";
+				TERMS_OF_USE_URL = "https://toproindustry.site/plantapdo/terms";
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

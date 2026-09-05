@@ -10,7 +10,9 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 
 struct SettingsView: View {
     @ObservedObject var viewModel: TodoViewModel
+    @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @State private var selectedSection: SettingsSection = .general
+    @State private var showingAdvancedUpgrade = false
 
     private var privacyPolicyURL: URL? {
         configuredHTTPSURL(forInfoKey: "PRIVACY_POLICY_URL")
@@ -41,6 +43,10 @@ struct SettingsView: View {
             }
         }
         .background(AppCanvasBackground())
+        .sheet(isPresented: $showingAdvancedUpgrade) {
+            AdvancedUpgradeView()
+                .presentationDetents([.medium, .large])
+        }
     }
 
     private var generalSettings: some View {
@@ -78,6 +84,38 @@ struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+            }
+
+            Section("✨ PlanTapDo Advanced") {
+                if subscriptionManager.hasAdvanced {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Label("Advanced is active", systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.green)
+                        if let plan = subscriptionManager.activePlan {
+                            Text("Current plan: \(plan.title)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    Button {
+                        showingAdvancedUpgrade = true
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("Upgrade to Advanced")
+                                    .fontWeight(.semibold)
+                                Text("Unlimited categories with monthly or annual plans.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
             }
 
             Section("ℹ️ About & Support") {

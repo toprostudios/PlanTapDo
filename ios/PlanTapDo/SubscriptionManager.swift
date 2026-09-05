@@ -3,42 +3,40 @@ import StoreKit
 
 @MainActor
 final class SubscriptionManager: ObservableObject {
-    enum PremiumPlan: String, CaseIterable, Identifiable {
-        case monthly, annual, lifetime
+    enum AdvancedPlan: String, CaseIterable, Identifiable {
+        case monthly, annual
 
         var id: String { rawValue }
         var productID: String {
             switch self {
             case .monthly: return "com.plantapdo.app.premium.monthly"
             case .annual: return "com.plantapdo.app.premium.annual"
-            case .lifetime: return "com.plantapdo.app.premium.lifetime"
             }
         }
         var fallbackPrice: String {
             switch self {
-            case .monthly: return "$4.99 / month"
-            case .annual: return "$49.99 / year"
-            case .lifetime: return "$99.99 once"
+            case .monthly: return "$4.99"
+            case .annual: return "$49.99"
             }
         }
 
-        var appStoreProductType: String {
+        var billingDescription: String {
             switch self {
-            case .monthly, .annual: return "Auto-Renewable Subscription"
-            case .lifetime: return "Non-Consumable"
+            case .monthly: return "per month, auto-renewing"
+            case .annual: return "per year, auto-renewing"
             }
         }
         var title: String {
             switch self {
             case .monthly: return "Monthly"
             case .annual: return "Annual"
-            case .lifetime: return "Lifetime"
             }
         }
     }
 
     @Published private(set) var products: [String: Product] = [:]
-    @Published private(set) var hasPremium = false
+    @Published private(set) var hasAdvanced = false
+    @Published private(set) var activePlan: AdvancedPlan?
     @Published private(set) var isLoading = false
     @Published var errorMessage: String?
 
@@ -61,24 +59,28 @@ final class SubscriptionManager: ObservableObject {
         errorMessage = nil
         defer { isLoading = false }
         do {
-            let loadedProducts = try await Product.products(for: PremiumPlan.allCases.map(\.productID))
+            let loadedProducts = try await Product.products(for: AdvancedPlan.allCases.map(\.productID))
             products = Dictionary(
                 loadedProducts.map { ($0.id, $0) },
                 uniquingKeysWith: { first, _ in first }
             )
             if products.isEmpty {
-                errorMessage = "Premium purchases are temporarily unavailable. Please try again later."
+                errorMessage = "Advanced purchases are temporarily unavailable. Please try again later."
             }
         } catch {
             errorMessage = "Couldn’t load the subscription. Please check your connection and try again."
         }
     }
 
-    func displayPrice(for plan: PremiumPlan) -> String? {
-        products[plan.productID]?.displayPrice
+    func displayPrice(for plan: AdvancedPlan) -> String {
+        products[plan.productID]?.displayPrice ?? plan.fallbackPrice
     }
 
-    func purchase(_ plan: PremiumPlan) async {
+    func isAvailable(for plan: AdvancedPlan) -> Bool {
+        products[plan.productID] != nil
+    }
+
+    func purchase(_ plan: AdvancedPlan) async {
         guard let product = products[plan.productID] else {
             await loadProducts()
             guard let product = products[plan.productID] else { return }
@@ -101,16 +103,17 @@ final class SubscriptionManager: ObservableObject {
     }
 
     func refreshEntitlements() async {
-        var hasEntitlement = false
+        var entitlementPlan: AdvancedPlan?
         for await result in Transaction.currentEntitlements {
             guard case .verified(let transaction) = result else { continue }
-            if PremiumPlan.allCases.map(\.productID).contains(transaction.productID),
+            if let plan = AdvancedPlan.allCases.first(where: { $0.productID == transaction.productID }),
                transaction.revocationDate == nil,
                transaction.expirationDate.map({ $0 > Date() }) ?? true {
-                hasEntitlement = true
+                entitlementPlan = plan
             }
         }
-        hasPremium = hasEntitlement
+        activePlan = entitlementPlan
+        hasAdvanced = entitlementPlan != nil
     }
 
     private func purchase(_ product: Product) async {
@@ -122,11 +125,12 @@ final class SubscriptionManager: ObservableObject {
             case .success(let verification):
                 guard case .verified(let transaction) = verification,
                       transaction.productID == product.id,
-                      PremiumPlan.allCases.map(\.productID).contains(transaction.productID) else {
+                      AdvancedPlan.allCases.map(\.productID).contains(transaction.productID) else {
                     errorMessage = "We couldn’t verify the purchase. Please try again."
                     break
                 }
-                hasPremium = true
+                hasAdvanced = true
+                activePlan = AdvancedPlan.allCases.first { $0.productID == transaction.productID }
                 await transaction.finish()
             case .pending:
                 errorMessage = "Your purchase is pending approval."
@@ -145,7 +149,7 @@ final class SubscriptionManager: ObservableObject {
         Task { [weak self] in
             for await result in Transaction.updates {
                 guard case .verified(let transaction) = result,
-                      PremiumPlan.allCases.map(\.productID).contains(transaction.productID)
+                      AdvancedPlan.allCases.map(\.productID).contains(transaction.productID)
                 else { continue }
                 await self?.refreshEntitlements()
                 await transaction.finish()

@@ -1,10 +1,15 @@
-# PlanTapDo security review
+# PlanTapDo future backend security review
 
 Review date: 2026-08-28
 
+> Scope note: this is a historical review of the retained future cloud-sync
+> prototype. It is not a v1 App Store release certification. The shipping v1
+> app is local-only; see [PROJECT_STATUS.md](PROJECT_STATUS.md) for its current
+> implementation state and remaining submission gates.
+
 ## Executive assessment
 
-The repository is a **production candidate**, not a production certification.
+The future backend prototype is a **production candidate**, not a production certification.
 No critical or unresolved high-severity code vulnerability was found in the
 reviewed application. The strongest existing controls are fail-closed
 production settings, short-lived/revocable JWTs, Argon2id password hashing,
@@ -187,7 +192,7 @@ select the nearest 64 reminders to respect iOS's pending-notification limit.
 
 Resolution: notification preferences and lead times now use a shared bounded
 format, duplicate subtask identifiers are rejected, and unknown local values
-decode safely to off. The Premium UI displays StoreKit's localized live price
+decode safely to off. The Advanced UI displays StoreKit's localized live price
 and disables unavailable products instead of presenting hard-coded prices.
 
 ## Accepted product boundary

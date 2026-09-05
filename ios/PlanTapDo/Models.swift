@@ -450,7 +450,7 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         try container.encode(descriptiveDeadline, forKey: .descriptiveDeadline)
         try container.encode(plannedStartTime, forKey: .plannedStartTime)
         if let scheduledNotBefore {
-            try container.encode(Self.apiDateTimeFormatter.string(from: scheduledNotBefore), forKey: .scheduledNotBefore)
+            try container.encode(Self.apiDateTimeString(from: scheduledNotBefore), forKey: .scheduledNotBefore)
         } else {
             try container.encodeNil(forKey: .scheduledNotBefore)
         }
@@ -469,7 +469,7 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         try container.encodeIfPresent(recurrenceWeekdays, forKey: .recurrenceWeekdays)
         try container.encode(recurrenceSeriesId, forKey: .recurrenceSeriesId)
         if let completedAt {
-            try container.encode(Self.apiDateTimeFormatter.string(from: completedAt), forKey: .completedAt)
+            try container.encode(Self.apiDateTimeString(from: completedAt), forKey: .completedAt)
         } else {
             try container.encodeNil(forKey: .completedAt)
         }
@@ -481,8 +481,6 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         }
     }
 
-    private static let apiDateTimeFormatter = ISO8601DateFormatter()
-
     private static func decodeDate(
         from container: KeyedDecodingContainer<CodingKeys>,
         forKey key: CodingKeys
@@ -490,7 +488,14 @@ struct TodoEntry: Identifiable, Codable, Hashable {
         guard let value = try? container.decode(String.self, forKey: key) else {
             return nil
         }
-        return apiDate(from: value) ?? apiDateTimeFormatter.date(from: value)
+        return apiDate(from: value) ?? ISO8601DateFormatter().date(from: value)
+    }
+
+    private static func apiDateTimeString(from date: Date) -> String {
+        // Foundation formatters have mutable internal state and are not
+        // Sendable. A fresh formatter avoids races between background API
+        // decoding and main-thread local persistence.
+        ISO8601DateFormatter().string(from: date)
     }
 
     /// Django's date fields represent a calendar day without a time zone. Build

@@ -1,9 +1,9 @@
 # PlanTapDo Terms of Use
 
 **Effective date:** August 30, 2026  
-**Last updated:** August 30, 2026
+**Last updated:** August 31, 2026
 
-These Terms of Use ("Terms") govern your use of the PlanTapDo iPhone and iPad app and related support services (the "Service"), operated by **Topro Industry Inc** ("PlanTapDo," "we," "us," or "our"). By using the Service, you agree to these Terms and acknowledge the Privacy Policy at https://toproindustry.site/privacy. Apple's Standard Licensed Application End User License Agreement at https://www.apple.com/legal/internet-services/itunes/dev/stdeula/ (the "Apple EULA") also applies.
+These Terms of Use ("Terms") govern your use of the PlanTapDo iPhone and iPad app and related support services (the "Service"), operated by **Topro Industry Inc** ("PlanTapDo," "we," "us," or "our"). By using the Service, you agree to these Terms and acknowledge the Privacy Policy at https://toproindustry.site/plantapdo/privacy. Apple's Standard Licensed Application End User License Agreement at https://www.apple.com/legal/internet-services/itunes/dev/stdeula/ (the "Apple EULA") also applies.
 
 If you do not agree, do not use the Service.
 
@@ -19,13 +19,13 @@ You may use the Service only for personal, lawful purposes. You must not interfe
 
 ## Purchases
 
-PlanTapDo may offer a one-time in-app purchase that unlocks unlimited categories. Before you confirm a purchase, Apple displays the product, localized price, currency, taxes where applicable, and any other transaction terms. The information Apple displays when you confirm controls the transaction.
+PlanTapDo may offer auto-renewable monthly or annual subscriptions that unlock unlimited categories. Before you confirm a purchase, Apple displays the product, localized price, currency, taxes where applicable, subscription duration, renewal terms, and any other transaction terms. The information Apple displays when you confirm controls the transaction.
 
-Payment is charged to your Apple Account when Apple confirms the purchase. Purchases, billing, restoration, and refunds are administered by Apple and are subject to Apple's terms and applicable consumer law. You can request a refund at https://reportaproblem.apple.com/. Removing PlanTapDo does not cancel or reverse a completed purchase.
+Payment is charged to your Apple Account when Apple confirms the purchase. Auto-renewable subscriptions renew automatically unless cancelled at least 24 hours before the end of the current subscription period. You can manage or cancel subscriptions in your Apple Account settings. Purchases, billing, restoration, and refunds are administered by Apple and are subject to Apple's terms and applicable consumer law. You can request a refund at https://reportaproblem.apple.com/. Removing PlanTapDo does not cancel an active subscription or reverse a completed purchase.
 
 ## Local content and privacy
 
-You retain your rights in the tasks, notes, and other content you create. PlanTapDo version 1 stores that content on your device and does not upload it to a PlanTapDo account or backend. Removing the app generally removes its local app data, subject to normal iOS and device-backup behavior controlled by Apple and you. See https://toproindustry.site/privacy for details.
+You retain your rights in the tasks, notes, and other content you create. PlanTapDo version 1 stores that content on your device and does not upload it to a PlanTapDo account or backend. PlanTapDo excludes its task state from iCloud and Finder backups. Removing the app generally removes its local app data, subject to normal iOS behavior controlled by Apple and you. See https://toproindustry.site/plantapdo/privacy for details.
 
 ## Ownership and licence
 

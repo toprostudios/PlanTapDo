@@ -10,13 +10,6 @@
 	<string>$(SUPPORT_URL)</string>
 	<key>TERMS_OF_USE_URL</key>
 	<string>$(TERMS_OF_USE_URL)</string>
-		<key>NSAppTransportSecurity</key>
-		<dict>
-			<key>NSAllowsLocalNetworking</key>
-			<true/>
-		</dict>
-		<key>NSLocalNetworkUsageDescription</key>
-		<string>PlanTapDo connects to your configured task sync server on the local network.</string>
     <key>CFBundleExecutable</key>
     <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key>

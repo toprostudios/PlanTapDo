@@ -1,0 +1,324 @@
+PlanTapDo — App Store Connect Submission Checklist
+=================================================
+
+PURPOSE
+-------
+
+Use this checklist for the 1.1 app update. It does not certify a current
+TestFlight binary or live web-page content; complete the applicable device
+tests and publishing work before submission.
+
+The two PlanTapDo Advanced subscriptions were already configured and reviewed
+with version 1.0. Keep their existing product IDs and do not recreate or
+resubmit them merely because version 1.1 is being submitted.
+
+
+1. AGREEMENTS, TAX, AND COMPLIANCE
+----------------------------------
+
+In App Store Connect > Business, confirm:
+
+- Paid Apps Agreement: Active
+- Banking: Complete
+- Tax forms: Complete
+- Agreements: No pending actions
+- EU Digital Services Act: Topro Industry Inc is likely a Trader because the app sells subscriptions. Complete Apple's contact verification if distributing in the EU.
+
+Apple guidance:
+https://developer.apple.com/help/app-store-connect/manage-compliance-information/manage-european-union-digital-services-act-trader-requirements/
+
+
+2. APP INFORMATION
+------------------
+
+Name:
+PlanTapDo
+
+Subtitle:
+Plan tasks. Protect time.
+
+Primary language:
+English (U.S.)
+
+Bundle ID:
+com.plantapdo.app
+
+Primary category:
+Productivity
+
+Secondary category:
+Utilities
+
+Content rights:
+No, the app does not contain, show, or access third-party content.
+
+Made for Kids:
+No
+
+Privacy Policy URL:
+https://toproindustry.site/plantapdo/privacy
+
+Copyright:
+2026 Topro Industry Inc
+
+License Agreement:
+Apple Standard EULA
+
+Age rating:
+Answer None/No for violence, gambling, medical content, unrestricted web access, user-generated content, messaging, advertising, and similar prompts. The expected rating is 4+.
+
+Apple reference:
+https://developer.apple.com/help/app-store-connect/reference/app-information/app-information
+
+
+3. APP PRIVACY
+--------------
+
+Select:
+
+- No, we do not collect data from this app
+- Tracking: No
+- Data used to track users: None
+- Privacy Choices URL: Not required
+
+This matches the reviewed build: local device storage, no account system, no advertising, no analytics, and no production server. Payment information handled exclusively by Apple and never accessed by the developer does not need to be disclosed.
+
+Apple guidance:
+https://developer.apple.com/help/app-store-connect/manage-app-information/manage-app-privacy/
+
+
+4. PRICING AND AVAILABILITY
+---------------------------
+
+- App price: Free
+- Distribution: Public App Store
+- Countries/regions: Select every storefront you intend to support
+- Subscription availability: Match the app's availability
+- Pre-order: Off
+- Release option: Manually release this version
+
+Manual release lets you choose when the approved version becomes public.
+
+Apple guidance:
+https://developer.apple.com/help/app-store-connect/manage-your-apps-availability/select-an-app-store-version-release-option
+
+
+5. EXISTING SUBSCRIPTIONS
+-------------------------
+
+SUBSCRIPTION GROUP
+
+Reference name:
+PlanTapDo Advanced
+
+Display name:
+PlanTapDo Advanced
+
+Both products already exist in this group at the same subscription level because
+they unlock the same feature.
+
+
+MONTHLY SUBSCRIPTION
+
+Reference name:
+PlanTapDo Advanced Monthly
+
+Product ID:
+com.plantapdo.app.premium.monthly
+
+Duration:
+1 month
+
+Price:
+US $4.99
+
+Display name:
+Advanced Monthly
+
+Description:
+Unlimited categories, billed monthly.
+
+
+ANNUAL SUBSCRIPTION
+
+Reference name:
+PlanTapDo Advanced Annual
+
+Product ID:
+com.plantapdo.app.premium.annual
+
+Duration:
+1 year
+
+Price:
+US $49.99
+
+Display name:
+Advanced Annual
+
+Description:
+Unlimited categories, billed annually.
+
+
+For the 1.1 update, retain the existing subscription configuration. If you
+intentionally change subscription metadata later, use a complete paywall
+screenshot and review notes that state the two-category free limit, unlimited
+categories, and Restore Purchases.
+
+Apple guidance:
+https://developer.apple.com/help/app-store-connect/manage-subscriptions/offer-auto-renewable-subscriptions/
+
+
+6. VERSION 1.1 METADATA
+------------------------
+
+Use the ready-to-paste 1.1 update notes in
+`docs/app-store-connect-ready-to-paste.txt` for the version's **What's New in
+This Version** field.
+
+PROMOTIONAL TEXT
+
+Turn tasks into a live, time-blocked day. PlanTapDo automatically adjusts unfinished work as time moves, tracks actual focus time, and protects your Off Time.
+
+
+DESCRIPTION
+
+PlanTapDo turns your task list into a live, time-blocked daily plan that adapts as your day changes.
+
+Build a schedule that adjusts with you
+• Turn tasks into visual time blocks on your daily calendar.
+• Assign a start time and duration, or let untimed work fill available space.
+• When a task is delayed, its block moves forward automatically instead of becoming a stale reminder.
+• Keep fixed-time commitments in place while flexible work adjusts around them.
+• Push and rearrange tasks directly as plans change.
+
+Track the work you actually do
+• Start a task to run its built-in focus timer.
+• Compare planned duration with the time you actually spent.
+• Review completed tasks and focus history to understand where your day went.
+
+Protect your time
+• Set Off Time so tasks do not spill into sleep or personal hours.
+• Organize work into customizable categories.
+• Create daily, weekly, monthly, or selected-weekday recurring tasks.
+• Recurring tasks appear only when they are due, without filling your list with future duplicates.
+
+Private by design
+Your tasks, schedules, categories, timer history, and preferences stay on your device. Version 1 has no PlanTapDo account, cloud sync, advertising, or third-party analytics.
+
+PlanTapDo is free to use with up to two categories. PlanTapDo Advanced unlocks unlimited categories through a monthly or annual auto-renewing subscription.
+
+
+KEYWORDS
+
+time blocking,daily planner,task timer,auto schedule,focus tracker,calendar,routine,productivity
+
+
+URLS
+
+Support URL:
+https://toproindustry.site/plantapdo/support
+
+Marketing URL:
+Optional. Leave blank if there is no dedicated product page.
+
+Apple reference:
+https://developer.apple.com/help/app-store-connect/reference/app-information/platform-version-information
+
+
+7. SCREENSHOTS
+--------------
+
+Upload at least one screenshot for each required device family, but five screenshots for each is recommended.
+
+Accepted sizes:
+
+- iPhone 6.9-inch portrait: 1260 x 2736, 1290 x 2796, or 1320 x 2868
+- iPad 13-inch portrait: 2064 x 2752 or 2048 x 2732
+
+Recommended screenshot order:
+
+1. Today calendar
+   Caption: Turn every task into a clear time block
+
+2. Adjusted daily schedule
+   Caption: Your plan automatically adjusts as the day changes
+
+3. Active focus timer
+   Caption: Track the time you actually spend
+
+4. Recurring-task settings
+   Caption: Repeat routines without duplicate clutter
+
+5. Off Time or completed-task history
+   Caption: Protect your Off Time and review your progress
+
+If you use a sixth screenshot:
+
+6. Categories
+   Caption: Organize every part of your day
+
+Use realistic sample tasks with no personal information and no TestFlight overlays.
+
+Apple specifications:
+https://developer.apple.com/help/app-store-connect/reference/app-information/screenshot-specifications/
+
+
+8. BUILD AND APP REVIEW INFORMATION
+------------------------------------
+
+- Version: 1.1
+- Build: Select the exact tested TestFlight build.
+- If another 1.1 binary is required after an upload, increment the build number;
+  an uploaded build number cannot be replaced.
+- Sign-in required: No
+- Demo username/password: Leave blank
+- Contact name: Enter the real reviewer contact
+- Contact email: yangli@toproindustry.site
+- Contact phone: Enter a real phone number Apple can reach
+
+
+APP REVIEW NOTES — PASTE THIS
+
+PlanTapDo 1.1 is a local-only personal planner. No account or sign-in is required, and task data is not sent to a server.
+
+To review the subscription:
+1. Open the Tasks tab.
+2. Create two categories.
+3. Tap + again to open the PlanTapDo Advanced paywall, or open Settings and choose Upgrade to Advanced.
+4. The monthly and annual subscriptions unlock the same feature: unlimited categories.
+5. Restore Purchases is available on the paywall.
+
+Product IDs:
+com.plantapdo.app.premium.monthly
+com.plantapdo.app.premium.annual
+
+Recurring tasks are generated only when their scheduled day arrives. Off Time is configured in Settings.
+
+No review attachment is necessary unless you want to include a short video demonstrating the category limit and subscription purchase.
+
+
+9. EXPORT COMPLIANCE
+--------------------
+
+When prompted:
+
+- Uses encryption: No non-exempt encryption
+- Advertising identifier: No
+
+The app already declares ITSAppUsesNonExemptEncryption = false.
+
+
+10. FINAL SUBMISSION ORDER
+--------------------------
+
+1. Test the current Release build on a physical iPhone and iPad.
+2. Publish any intended legal or support-page changes.
+3. Verify the Paid Apps Agreement, tax, banking, and EU trader status if App
+   Store Connect reports a pending action.
+4. Complete App Information, the age rating, App Privacy, pricing, and
+   availability for version 1.1.
+5. Add the version description, keywords, screenshots, tested build, contact
+   information, and review notes.
+6. Resolve every red error and review each yellow warning.
+7. Select manual release and click Submit for Review.

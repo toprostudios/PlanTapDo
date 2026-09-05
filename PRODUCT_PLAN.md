@@ -59,19 +59,23 @@ PlanTapDo turns a personal task list into a live daily schedule.
 ## Monetization
 
 The app is free to download. Free users can create up to two categories.
-Premium unlocks unlimited categories. This is the only paid feature in v1.
-Before submission, configure the matching StoreKit product(s) and accurately
-show the purchase in App Store Connect metadata and review notes.
+PlanTapDo Advanced unlocks unlimited categories. This is the only paid feature in v1.
+The repository contains matching StoreKit 2 code and a local test catalog for
+monthly and annual subscriptions. Those production products were established
+with the 1.0 release; retain their identifiers for later app updates. See
+`ios/PlanTapDo/APP_STORE_CONNECT_IAP_CHECKLIST.md` and `PROJECT_STATUS.md`.
 
 ## Privacy and App Store scope
 
 - No account or cloud backend is part of the shipping v1 experience.
 - The privacy policy must accurately describe on-device task storage and any
   purchase data handled by Apple. It must not claim cloud sync.
-- The privacy, Terms, and support URLs must provide accurate information and a
-  real way to contact the developer.
-- Publish the versioned sources in `docs/publishable-text/` at the privacy and
-  Terms and support URLs before archiving. These legal pages do not define
+- The Privacy Policy at `https://toproindustry.site/plantapdo/privacy`, Terms
+  of Use at `https://toproindustry.site/plantapdo/terms`, and Support page at
+  `https://toproindustry.site/plantapdo/support` must provide accurate
+  information and a real way to contact the developer.
+- Keep the live pages synchronized with the versioned sources in
+  `docs/publishable-text/` before archiving. These legal pages do not define
   product scope.
 - Test the complete release build on physical iPhone and iPad hardware before
   submission. Submit truthful screenshots and metadata for the shipped feature
@@ -84,7 +88,7 @@ show the purchase in App Store Connect metadata and review notes.
    account deletion, support processes, legal disclosures, and App Review test
    access.
 2. Per-profile and per-category Off Time schedules.
-3. Additional Premium features only when they clearly improve the core planner.
+3. Additional PlanTapDo Advanced features only when they clearly improve the core planner.
 
 ## Documentation rules
 

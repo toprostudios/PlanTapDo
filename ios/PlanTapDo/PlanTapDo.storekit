@@ -1,0 +1,85 @@
+{
+  "identifier" : "F21CB9A1-9D77-44EC-869A-2FA89D18D0AB",
+  "nonRenewingSubscriptionProducts" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "0"
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "B3CD8CF6-F11C-4E2E-929C-62CEDD5B907C",
+      "localizations" : [
+        {
+          "description" : "Unlock unlimited categories in PlanTapDo.",
+          "displayName" : "PlanTapDo Advanced",
+          "locale" : "en_US"
+        }
+      ],
+      "name" : "PlanTapDo Advanced",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "4.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "2D1F3539-C595-48EB-ACFD-4CFD36E98C3D",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monthly PlanTapDo Advanced access with unlimited categories.",
+              "displayName" : "PlanTapDo Advanced Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.plantapdo.app.premium.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "PlanTapDo Advanced Monthly",
+          "type" : "RecurringSubscription",
+          "winBackOffers" : [
+
+          ]
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "49.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "DB517770-0D87-4D63-9F2F-CA7E1E348ABF",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Annual PlanTapDo Advanced access with unlimited categories.",
+              "displayName" : "PlanTapDo Advanced Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.plantapdo.app.premium.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "PlanTapDo Advanced Annual",
+          "type" : "RecurringSubscription",
+          "winBackOffers" : [
+
+          ]
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

@@ -862,7 +862,7 @@ class SyncView(generics.GenericAPIView):
             "color_hex": ("color_hex", "color"),
             "icon": ("icon",),
             "notes": ("notes",),
-            "notification_preference": ("notification_preference", "notificationPreference"),
+            "notificationPreference": ("notification_preference", "notificationPreference"),
         }
         for category_data in categories:
             if not isinstance(category_data, dict):
@@ -908,7 +908,7 @@ class SyncView(generics.GenericAPIView):
             "priority": ("priority",),
             "location": ("location",),
             "reminder": ("reminder",),
-            "notification_preference": ("notification_preference", "notificationPreference"),
+            "notificationPreference": ("notification_preference", "notificationPreference"),
             "labels": ("labels",),
             "subtasks": ("subtasks",),
             "assignee_id": ("assignee_id", "assigneeId"),
@@ -926,6 +926,11 @@ class SyncView(generics.GenericAPIView):
                 "recurrenceSeriesId",
             ),
             "completed_at": ("completed_at", "completedAt"),
+            "split_parent_id": ("split_parent_id", "splitParentID", "splitParentId"),
+            "split_original_duration": (
+                "split_original_duration",
+                "splitOriginalDuration",
+            ),
         }
         for todo_data in todos:
             if not isinstance(todo_data, dict):

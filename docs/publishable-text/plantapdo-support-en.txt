@@ -1,6 +1,6 @@
 # PlanTapDo Support
 
-**Last updated:** August 27, 2026
+**Last updated:** August 31, 2026
 
 ## Get help
 
@@ -10,16 +10,16 @@ For accessibility, privacy, billing, or technical help, email **yangli@toproindu
 
 PlanTapDo version 1 stores tasks, schedules, timer history, reports, and preferences on your device. There is no PlanTapDo account or cloud sync service in this version.
 
-You can edit or delete tasks and categories in the app. Removing the app generally removes its local data from that device. If Apple device backup is enabled, a backup may remain under your Apple account settings and Apple's policies; PlanTapDo cannot view, restore, or delete that backup.
+You can edit or delete tasks and categories in the app. PlanTapDo excludes its task state from iCloud and Finder backups. Removing the app generally removes its local data from that device. PlanTapDo cannot view, restore, or delete iOS-managed app metadata that Apple may retain under your Apple account settings and policies.
 
 ## Purchases and category unlocks
 
-PlanTapDo's optional category upgrade is processed by Apple through the App Store. To restore an eligible purchase, use the app's restore-purchases control. To manage or cancel an Apple subscription, if one is offered, visit [Apple subscription settings](https://apps.apple.com/account/subscriptions). Refund eligibility is determined by Apple and applicable consumer law; you can request a refund through [Apple's Report a Problem service](https://reportaproblem.apple.com/).
+PlanTapDo's optional category upgrade is processed by Apple through the App Store as an auto-renewing monthly or annual subscription. To restore an eligible purchase, use the app's restore-purchases control. To manage or cancel an Apple subscription, visit [Apple subscription settings](https://apps.apple.com/account/subscriptions). Refund eligibility is determined by Apple and applicable consumer law; you can request a refund through [Apple's Report a Problem service](https://reportaproblem.apple.com/).
 
 ## Privacy
 
-PlanTapDo does not collect task data through the app in version 1. If you contact support, we use the information in your message only to respond and resolve your request. Read the PlanTapDo Privacy Policy at https://toproindustry.site/privacy for details and privacy-request contact information.
+PlanTapDo does not collect task data through the app in version 1. If you contact support, we use the information in your message only to respond and resolve your request. Read the PlanTapDo Privacy Policy at https://toproindustry.site/plantapdo/privacy for details and privacy-request contact information.
 
 ## Terms of Use
 
-Your use of PlanTapDo is governed by the PlanTapDo Terms of Use at https://toproindustry.site/terms, together with Apple's Standard Licensed Application End User License Agreement where it applies.
+Your use of PlanTapDo is governed by the PlanTapDo Terms of Use at https://toproindustry.site/plantapdo/terms, together with Apple's Standard Licensed Application End User License Agreement where it applies.

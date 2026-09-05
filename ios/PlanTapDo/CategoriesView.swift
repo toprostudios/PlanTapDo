@@ -4,7 +4,7 @@ struct CategoriesView: View {
     @ObservedObject var viewModel: TodoViewModel
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @State private var showingAddCategory = false
-    @State private var showingPremiumUpgrade = false
+    @State private var showingAdvancedUpgrade = false
     @State private var selectedCategoryToEdit: Category?
     @State private var selectedTodo: TodoEntry?
     @AppStorage("tasksHubShowsAllTasks") private var showsAllTasks = true
@@ -46,16 +46,21 @@ struct CategoriesView: View {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Your categories")
                             .font(.title3.weight(.bold))
+                        if !subscriptionManager.hasAdvanced {
+                            Text("Free: \(TodoViewModel.freeCategoryLimit) categories")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
 
                     Spacer()
 
                     Button {
                         AppHaptics.impact(.medium)
-                        if viewModel.canAddCategory(isPremium: subscriptionManager.hasPremium) {
+                        if viewModel.canAddCategory(isAdvanced: subscriptionManager.hasAdvanced) {
                             showingAddCategory = true
                         } else {
-                            showingPremiumUpgrade = true
+                            showingAdvancedUpgrade = true
                         }
                     } label: {
                         Image(systemName: "plus")
@@ -160,8 +165,8 @@ struct CategoriesView: View {
             AddCategoryView(viewModel: viewModel)
                 .presentationDetents([.medium])
         }
-        .sheet(isPresented: $showingPremiumUpgrade) {
-            PremiumUpgradeView()
+        .sheet(isPresented: $showingAdvancedUpgrade) {
+            AdvancedUpgradeView()
                 .presentationDetents([.medium, .large])
         }
         .sheet(item: $selectedCategoryToEdit) { category in
@@ -666,7 +671,7 @@ struct AddCategoryView: View {
     @State private var name = ""
     @State private var icon = "🎯"
     @State private var colorHex = "7C6FF7"
-    @State private var showingPremiumLimit = false
+    @State private var showingAdvancedLimit = false
 
     // Green is reserved for tasks with a running timer.
     private let swatches = ["7C6FF7", "F5A623", "60A5FA", "EC4899", "F43F5E", "EAB308", "14B8A6"]
@@ -730,9 +735,9 @@ struct AddCategoryView: View {
                             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
                             colorHex: colorHex,
                             icon: icon.isEmpty ? "🔖" : icon,
-                            isPremium: subscriptionManager.hasPremium
+                            isAdvanced: subscriptionManager.hasAdvanced
                         ) else {
-                            showingPremiumLimit = true
+                            showingAdvancedLimit = true
                             return
                         }
                         onSave(category)
@@ -742,7 +747,7 @@ struct AddCategoryView: View {
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .alert("Premium unlocks unlimited categories", isPresented: $showingPremiumLimit) {
+            .alert("Advanced unlocks unlimited categories", isPresented: $showingAdvancedLimit) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text("Free accounts can create up to \(TodoViewModel.freeCategoryLimit) categories.")
@@ -751,70 +756,193 @@ struct AddCategoryView: View {
     }
 }
 
-private struct PremiumUpgradeView: View {
+struct AdvancedUpgradeView: View {
     @EnvironmentObject private var subscriptionManager: SubscriptionManager
     @Environment(\.dismiss) private var dismiss
 
+    private var privacyPolicyURL: URL? {
+        configuredHTTPSURL(forInfoKey: "PRIVACY_POLICY_URL")
+    }
+
+    private var termsOfUseURL: URL? {
+        configuredHTTPSURL(forInfoKey: "TERMS_OF_USE_URL")
+    }
+
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 18) {
-                Image(systemName: "sparkles")
-                    .font(.system(size: 42, weight: .bold))
-                    .foregroundStyle(.indigo)
-                Text("PlanTapDo Premium")
-                    .font(.title.weight(.bold))
-                Text("Premium lets you create unlimited categories. More Premium features will be added over time.")
-                    .foregroundStyle(.secondary)
-
-                ForEach(SubscriptionManager.PremiumPlan.allCases) { plan in
-                    Button {
-                        Task {
-                            await subscriptionManager.purchase(plan)
-                            if subscriptionManager.hasPremium { dismiss() }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    HStack(alignment: .top, spacing: 14) {
+                        Image(systemName: "folder.badge.plus")
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 54, height: 54)
+                            .background(Circle().fill(Color.indigo.gradient))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Unlimited Categories")
+                                .font(.title2.weight(.bold))
+                            Text("PlanTapDo Advanced")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.indigo)
                         }
-                    } label: {
+                    }
+
+                    Text("CURRENT PLAN")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .leading, spacing: 10) {
                         HStack {
-                            VStack(alignment: .leading) {
-                                Text(plan.title).font(.headline)
-                                if let price = subscriptionManager.displayPrice(for: plan) {
-                                    Text(price).font(.subheadline)
-                                } else {
-                                    Text("Unavailable")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
+                            Image(systemName: subscriptionManager.hasAdvanced ? "checkmark.seal.fill" : "person.crop.circle")
+                                .foregroundStyle(subscriptionManager.hasAdvanced ? .green : .secondary)
+                            Text(subscriptionManager.hasAdvanced ? "Advanced" : "Free")
+                                .font(.headline)
                             Spacer()
-                            if subscriptionManager.isLoading { ProgressView() }
+                            Text(subscriptionManager.hasAdvanced
+                                ? "Unlimited access"
+                                : "\(TodoViewModel.freeCategoryLimit) categories")
+                                .foregroundStyle(.secondary)
+                        }
+                        if let activePlan = subscriptionManager.activePlan {
+                            Text("\(activePlan.title) · \(activePlan.billingDescription)")
+                                .font(.caption)
+                            .foregroundStyle(.secondary)
                         }
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(
-                        subscriptionManager.isLoading
-                            || subscriptionManager.displayPrice(for: plan) == nil
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.indigo.opacity(0.09))
                     )
-                }
 
-                Button("Restore Purchases") {
-                    Task {
-                        await subscriptionManager.restorePurchases()
-                        if subscriptionManager.hasPremium { dismiss() }
+                    Text("WHAT YOU UNLOCK WITH ADVANCED")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary)
+
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Free")
+                                .font(.headline)
+                            Label("\(TodoViewModel.freeCategoryLimit) categories", systemImage: "folder")
+                                .font(.caption)
+                            Label("\(TodoViewModel.freeCategoryLimit) customized categories", systemImage: "paintpalette")
+                                .font(.caption)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.secondary.opacity(0.10)))
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("Advanced")
+                                .font(.headline)
+                            Label("Unlimited categories", systemImage: "folder.badge.plus")
+                                .font(.caption)
+                            Label("Unlimited category customization", systemImage: "paintpalette.fill")
+                                .font(.caption)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .foregroundStyle(.indigo)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(14)
+                        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.indigo.opacity(0.10)))
                     }
-                }
-                .frame(maxWidth: .infinity)
-                .disabled(subscriptionManager.isLoading)
 
-                if let errorMessage = subscriptionManager.errorMessage {
-                    Text(errorMessage).font(.caption).foregroundStyle(.red)
+                    if subscriptionManager.hasAdvanced {
+                        Label("Advanced is active", systemImage: "checkmark.seal.fill")
+                            .font(.headline)
+                            .foregroundStyle(.green)
+                    } else {
+                        Text("Upgrade your plan")
+                            .font(.headline)
+
+                        ForEach(SubscriptionManager.AdvancedPlan.allCases) { plan in
+                            Button {
+                                Task {
+                                    await subscriptionManager.purchase(plan)
+                                    if subscriptionManager.hasAdvanced { dismiss() }
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text("Advanced \(plan.title)")
+                                            .font(.headline)
+                                        Text(plan.billingDescription)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.white.opacity(0.8))
+                                    }
+                                    Spacer()
+                                    if subscriptionManager.isLoading {
+                                        ProgressView()
+                                            .tint(.white)
+                                    } else {
+                                        Text(subscriptionManager.displayPrice(for: plan))
+                                            .font(.headline.weight(.bold))
+                                    }
+                                }
+                                .padding(16)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                        .fill(Color.indigo)
+                                )
+                                .foregroundStyle(.white)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(subscriptionManager.isLoading || !subscriptionManager.isAvailable(for: plan))
+                            .opacity(subscriptionManager.isAvailable(for: plan) ? 1 : 0.45)
+                        }
+                    }
+
+                    Button("Restore Purchases") {
+                        Task {
+                            await subscriptionManager.restorePurchases()
+                            if subscriptionManager.hasAdvanced { dismiss() }
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .disabled(subscriptionManager.isLoading)
+
+                    if let errorMessage = subscriptionManager.errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+
+                    Text("Payment is charged to your Apple Account at confirmation. Plans renew automatically unless cancelled at least 24 hours before the current period ends.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 16) {
+                        if let termsOfUseURL {
+                            Link("Terms", destination: termsOfUseURL)
+                        }
+                        if let privacyPolicyURL {
+                            Link("Privacy", destination: privacyPolicyURL)
+                        }
+                        Link("Manage", destination: URL(string: "https://apps.apple.com/account/subscriptions")!)
+                    }
+                    .font(.footnote)
                 }
-                Spacer()
+                .padding(24)
             }
-            .padding(24)
-            .navigationTitle("Go Premium")
+            .navigationTitle("Go Advanced")
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }
             }
         }
+    }
+
+    private func configuredHTTPSURL(forInfoKey key: String) -> URL? {
+        guard
+            let value = Bundle.main.object(forInfoDictionaryKey: key) as? String,
+            let url = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
+            url.scheme?.lowercased() == "https",
+            url.host != nil
+        else { return nil }
+        return url
     }
 }
 
@@ -839,5 +967,6 @@ struct CategoriesView_Previews: PreviewProvider {
         NavigationStack {
             CategoriesView(viewModel: TodoViewModel())
         }
+        .environmentObject(SubscriptionManager())
     }
 }

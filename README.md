@@ -1,9 +1,10 @@
 # PlanTapDo
 
 PlanTapDo is a local-first personal task planner for iPhone and iPad. Version 1
-ships without accounts or cloud sync; its authoritative product and release
-scope is in [PRODUCT_PLAN.md](PRODUCT_PLAN.md). Android, desktop, and web
-clients are intentionally out of scope.
+ships without accounts or cloud sync. See [PROJECT_STATUS.md](PROJECT_STATUS.md)
+for the verified implementation state and remaining submission gates, and
+[PRODUCT_PLAN.md](PRODUCT_PLAN.md) for the authoritative product scope.
+Android, desktop, and web clients are intentionally out of scope.
 
 ## Repository layout
 
@@ -33,10 +34,11 @@ Version 1 stores workspace state locally with complete file protection in
 Application Support. There is no reachable account, login, or cloud-sync flow.
 
 Onboarding and account/cloud screens are intentionally paused: their source
-files remain available for later work but are excluded from the application
-target. The current release opens directly into the core planner. The only v1
-purchase is the optional StoreKit category-limit upgrade described in
-`PRODUCT_PLAN.md`.
+remains for future work but is not reachable from the shipping UI. The current
+release opens directly into the core planner. The optional Advanced
+upgrade unlocks unlimited categories; its local StoreKit catalog and record of
+the existing production products are in
+[ios/PlanTapDo/APP_STORE_CONNECT_IAP_CHECKLIST.md](ios/PlanTapDo/APP_STORE_CONNECT_IAP_CHECKLIST.md).
 
 Run the iOS unit tests on a connected iPhone or iPad:
 
@@ -49,9 +51,14 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
 
 ### TestFlight archive
 
-Version 1 does not require a backend URL. Its privacy policy, Terms of Use,
-and support links use the shared Topro Industry HTTPS pages; publish the
-matching current text before archiving.
+Version 1 does not require a backend URL. Its public pages are:
+
+- Privacy Policy: `https://toproindustry.site/plantapdo/privacy`
+- Terms of Use: `https://toproindustry.site/plantapdo/terms`
+- Support: `https://toproindustry.site/plantapdo/support`
+
+Keep those pages synchronized with the matching sources in
+`docs/publishable-text/` before archiving.
 
 ```bash
 xcodebuild -project ios/PlanTapDo.xcodeproj \
@@ -64,13 +71,13 @@ xcodebuild -project ios/PlanTapDo.xcodeproj \
 
 All three public links must be live before submission. The privacy policy and
 Terms must match the local-only data behavior described in `PRODUCT_PLAN.md`;
-the support page must include a working way to contact you.
+the support page must include a working way to contact you. See
+`PROJECT_STATUS.md` for the current URL and device-testing gates.
 
 Use the repository's configured Apple team and automatic signing in Xcode, then
 validate and upload the archive from Organizer. Before each upload, increment
 `CURRENT_PROJECT_VERSION`; keep `MARKETING_VERSION` aligned with the App Store
-version. The production API URL, Apple distribution certificate/profile, and
-App Store Connect access are deployment credentials and are intentionally not
+version. Apple distribution credentials and App Store Connect access are not
 stored in this repository.
 
 ## Future cloud-sync prototype (not part of v1)

@@ -46,7 +46,7 @@ struct AccountView: View {
                                 HStack {
                                     Text(viewModel.userAccount.name)
                                         .font(.headline.weight(.bold))
-                                    Text("👑 \(subscriptionManager.hasPremium ? "Premium" : viewModel.userAccount.tier)")
+                                    Text("👑 \(subscriptionManager.hasAdvanced ? "Advanced" : viewModel.userAccount.tier)")
                                         .font(.caption2.weight(.heavy))
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 3)

@@ -1,0 +1,120 @@
+PlanTapDo — App Store Connect Ready-to-Paste Text
+================================================
+
+APP NAME
+--------
+PlanTapDo
+
+
+SUBTITLE
+--------
+Plan tasks. Protect time.
+
+
+PROMOTIONAL TEXT
+----------------
+Turn tasks into a live, time-blocked day. PlanTapDo automatically adjusts unfinished work as time moves, tracks actual focus time, and protects your Off Time.
+
+
+WHAT'S NEW IN VERSION 1.1
+--------------------------
+PlanTapDo 1.1 makes daily planning more dependable.
+
+• Improved recurring tasks, including better handling for late-created repeats and shorter months.
+• More reliable scheduling around Off Time and unfinished tasks.
+• Smoother timer and calendar behavior when tasks are rescheduled or continued.
+• Refreshed PlanTapDo Advanced experience with clearer category-limit and subscription information.
+• General fixes and polish throughout the planner.
+
+
+DESCRIPTION
+-----------
+PlanTapDo turns your task list into a live, time-blocked daily plan that adapts as your day changes.
+
+Build a schedule that adjusts with you
+• Turn tasks into visual time blocks on your daily calendar.
+• Assign a start time and duration, or let untimed work fill available space.
+• When a task is delayed, its block moves forward automatically instead of becoming a stale reminder.
+• Keep fixed-time commitments in place while flexible work adjusts around them.
+• Push and rearrange tasks directly as plans change.
+
+Track the work you actually do
+• Start a task to run its built-in focus timer.
+• Compare planned duration with the time you actually spent.
+• Review completed tasks and focus history to understand where your day went.
+
+Protect your time
+• Set Off Time so tasks do not spill into sleep or personal hours.
+• Organize work into customizable categories.
+• Create daily, weekly, monthly, or selected-weekday recurring tasks.
+• Recurring tasks appear only when they are due, without filling your list with future duplicates.
+
+Private by design
+Your tasks, schedules, categories, timer history, and preferences stay on your device. Version 1 has no PlanTapDo account, cloud sync, advertising, or third-party analytics.
+
+PlanTapDo is free to use with up to two categories. PlanTapDo Advanced unlocks unlimited categories through a monthly or annual auto-renewing subscription.
+
+
+KEYWORDS
+--------
+time blocking,daily planner,task timer,auto schedule,focus tracker,calendar,routine,productivity
+
+
+SUPPORT URL
+-----------
+https://toproindustry.site/plantapdo/support
+
+
+PRIVACY POLICY URL
+------------------
+https://toproindustry.site/plantapdo/privacy
+
+
+COPYRIGHT
+---------
+2026 Topro Industry Inc
+
+
+MONTHLY SUBSCRIPTION DISPLAY NAME
+---------------------------------
+Advanced Monthly
+
+
+MONTHLY SUBSCRIPTION DESCRIPTION
+--------------------------------
+Unlimited categories, billed monthly.
+
+
+ANNUAL SUBSCRIPTION DISPLAY NAME
+--------------------------------
+Advanced Annual
+
+
+ANNUAL SUBSCRIPTION DESCRIPTION
+-------------------------------
+Unlimited categories, billed annually.
+
+
+SUBSCRIPTION REVIEW NOTES
+-------------------------
+Open Tasks and attempt to create a third category, or open Settings and choose Upgrade to Advanced.
+
+The subscription unlocks unlimited categories. Free users can create up to two categories. Restore Purchases is available on the paywall.
+
+
+APP VERSION REVIEW NOTES
+------------------------
+PlanTapDo 1.1 is a local-only personal planner. No account or sign-in is required, and task data is not sent to a server.
+
+To review the subscription:
+1. Open the Tasks tab.
+2. Create two categories.
+3. Tap + again to open the PlanTapDo Advanced paywall, or open Settings and choose Upgrade to Advanced.
+4. The monthly and annual subscriptions unlock the same feature: unlimited categories.
+5. Restore Purchases is available on the paywall.
+
+Product IDs:
+com.plantapdo.app.premium.monthly
+com.plantapdo.app.premium.annual
+
+Recurring tasks are generated only when their scheduled day arrives. Off Time is configured in Settings.

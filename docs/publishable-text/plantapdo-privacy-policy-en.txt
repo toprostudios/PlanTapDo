@@ -1,7 +1,7 @@
 # PlanTapDo Privacy Policy
 
 **Effective date:** August 27, 2026  
-**Last updated:** August 27, 2026
+**Last updated:** August 31, 2026
 
 This Privacy Policy explains how **Topro Industry Inc** ("PlanTapDo," "we," "us," or "our") handles information when you use the PlanTapDo iPhone and iPad app and contact our support service. Topro Industry Inc is responsible for the information described in this Policy.
 
@@ -17,11 +17,14 @@ PlanTapDo stores the information you create or configure in the app, including t
 
 PlanTapDo may schedule local notifications when you enable them. Those notifications are created and delivered through iOS on your device; PlanTapDo does not send your task data to a PlanTapDo server to deliver them.
 
-You control this local information. You can edit or delete tasks and categories in the app. Removing the app generally removes its local data from that device. If you enable Apple device backups, Apple may retain an encrypted backup according to your Apple account settings and Apple's policies; PlanTapDo does not control or access those backups.
+You control this local information. You can edit or delete tasks and categories in the app. PlanTapDo excludes its task state from iCloud and Finder backups. Removing the app generally removes its local data from that device. Apple may retain limited iOS-managed app metadata according to your Apple account settings and Apple's policies; PlanTapDo does not control or access that information.
 
 ## Purchases
 
-PlanTapDo may offer an in-app purchase that unlocks unlimited categories. Apple processes App Store purchases and payment information. We do not receive or store your payment-card or bank-account details.
+PlanTapDo may offer auto-renewable monthly or annual subscriptions that unlock
+unlimited categories. Apple processes App Store purchases and payment
+information. We do not receive or store your payment-card or bank-account
+details.
 
 The app uses Apple's StoreKit framework on your device to check purchase entitlements and restore eligible purchases. PlanTapDo version 1 does not send StoreKit transaction identifiers or task data to a PlanTapDo server.
 
@@ -56,4 +59,4 @@ We may update this Policy to reflect changes to PlanTapDo, our practices, or leg
 **Kirkland, QC H9H 4Z3, Canada**  
 **yangli@toproindustry.site**
 
-The Privacy Officer handles privacy requests and complaints. General PlanTapDo support is available at the same email address and at https://toproindustry.site/support. These practices are also subject to the PlanTapDo Terms of Use at https://toproindustry.site/terms.
+The Privacy Officer handles privacy requests and complaints. General PlanTapDo support is available at the same email address and at https://toproindustry.site/plantapdo/support. These practices are also subject to the PlanTapDo Terms of Use at https://toproindustry.site/plantapdo/terms.

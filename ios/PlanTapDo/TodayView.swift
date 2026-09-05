@@ -422,6 +422,7 @@ struct TaskDetailView: View {
     @State private var showingDeleteConfirmation = false
 
     init(todo: TodoEntry, viewModel: TodoViewModel) {
+        let todo = viewModel.editableTodo(for: todo)
         self.todo = todo
         self.viewModel = viewModel
         _title = State(initialValue: todo.title)
@@ -458,13 +459,9 @@ struct TaskDetailView: View {
                     }
 
                     Picker("Duration", selection: $durationMinutes) {
-                        Text("Unspecified (5 min estimate)").tag(0)
-                        Text("15 min").tag(15)
-                        Text("30 min").tag(30)
-                        Text("45 min").tag(45)
-                        Text("1 hour").tag(60)
-                        Text("1.5 hours").tag(90)
-                        Text("2 hours").tag(120)
+                        ForEach(detailDurationChoices, id: \.self) { minutes in
+                            Text(detailDurationLabel(minutes)).tag(minutes)
+                        }
                     }
                     if durationMinutes == 0 {
                         Text("Unspecified tasks stay in the list and do not appear on the calendar.")
@@ -568,6 +565,19 @@ struct TaskDetailView: View {
 
         viewModel.updateTodo(updatedTodo)
         dismiss()
+    }
+
+    private var detailDurationChoices: [Int] {
+        Array(Set([0, 5, 15, 30, 45, 60, 90, 120, durationMinutes])).sorted()
+    }
+
+    private func detailDurationLabel(_ minutes: Int) -> String {
+        if minutes == 0 { return "Unspecified (5 min estimate)" }
+        if minutes < 60 { return "\(minutes) min" }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        if remainder == 0 { return hours == 1 ? "1 hour" : "\(hours) hours" }
+        return "\(hours) hr \(remainder) min"
     }
 
 
